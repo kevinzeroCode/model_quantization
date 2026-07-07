@@ -1,0 +1,1678 @@
+# Long-Context LLM Quantization 實驗 Runbook(可執行版)
+
+> **For agentic workers:** 本文件設計為由 AI agent(如 Claude Code)在**實驗機(Linux + RTX 4090)**上逐 Phase 執行。若環境有 superpowers plugin,可用 `subagent-driven-development` 或 `executing-plans` 逐 Task 執行;否則直接由上而下執行,以 `STATE.json` 追蹤進度。步驟使用 checkbox(`- [ ]`)語法。
+>
+> 版本:2026-07-07 v1。本檔在 Windows 端撰寫,**執行端是 Linux**;請將本檔複製到實驗機的 `~/kvq-exp/EXPERIMENT_RUNBOOK.md` 後開始。
+
+**Goal:** 系統性回答「長上下文推論中,壓 weight 還是壓 KV cache 更划算」,並以 **Hybrid Polar-KIVI KV cache quantization**(Key 用極座標量化、Value 用 per-token 量化)做出可發表的改良結果。
+
+**Architecture:** 兩條 runtime 分流 —— vLLM(部署路線:BF16 / AWQ / GPTQ / FP8 KV / TurboQuant,量測 TTFT/TPOT/吞吐/容量)與 HuggingFace transformers(研究路線:int4/int2 quantized cache 與自製 Hybrid Polar-KIVI cache,以 simulated quantization 量測品質)。所有品質評測共用同一套凍結的 prompt 集(NIAH 網格 + LongBench 子集 + cached-PPL),所有結果落到兩張 CSV(perf / quality)。
+
+**Tech Stack:** Python 3.12、uv(雙 venv:`venv-vllm` / `venv-hf`)、vLLM、transformers + optimum-quanto、datasets 2.x、pytest。主模型 Qwen2.5-7B-Instruct(28 層、GQA 4 KV heads、head_dim 128 → FP16 KV = 56 KiB/token)。
+
+---
+
+## 快速啟動(給人類)
+
+```bash
+# 在 4090 實驗機上:
+mkdir -p ~/kvq-exp && cp EXPERIMENT_RUNBOOK.md ~/kvq-exp/ && cd ~/kvq-exp
+# 然後把本檔交給 agent,指令例:
+#   「閱讀 EXPERIMENT_RUNBOOK.md,依 STATE.json 從下一個未完成 Phase 開始執行。」
+```
+
+---
+
+## §A Agent 執行契約(每個 Phase 都適用,rigid)
+
+1. **開工先讀 `STATE.json`**(不存在就照附錄 T1 建立),只執行「下一個未完成 Phase」;每完成一個 Task 立刻更新 STATE.json。
+2. **查證優先**:任何「本文件標註 `[待驗證]` 的指令旗標或 API」,先用 `--help` / 官方文件 / 小模型 smoke test 確認再用;探查結果寫進 `ISSUES.md`。禁止假設功能存在。
+3. **數字不編造**:所有表格數字必須來自 `results/perf.csv`、`results/quality.csv` 或 `results/raw/` 的實際檔案。跑失敗就記 `FAIL`,跑不動就記 `OOM` 或 `SKIP` —— **OOM 邊界本身就是實驗數據,照實記錄**。
+4. **完成須有證據**:宣告 Phase 完成前,逐項核對該 Phase 的「驗收」清單,數字對數字(例:perf.csv 新增 24/24 列)。驗收證據寫進 `reports/phaseN.md`。
+5. **同一步驟失敗兩次就停**:不做第三次原地重試;先在 `ISSUES.md` 寫下根因診斷,再依該 Phase 的 fallback 分支改道。無 fallback 可走時,停下來向使用者回報。
+6. **公平比較規則(全域)**:
+   - 品質評測一律 greedy(`temperature=0`),`seed=42`,同一套凍結 prompts(`prompts/MANIFEST.json` 的 sha256 鎖定,**中途絕不重生成**)。
+   - 速度量測:每組先跑 1 次 warmup(丟棄),再取 n=3 的 mean±std。
+   - GPU 獨占:跑任何 benchmark 前用 `nvidia-smi` 確認沒有其他行程;serve 行程用完即關。
+   - **runtime 欄位必填**;vLLM 與 HF runtime 的速度數字**永遠不放進同一張比較表**(品質數字可跨表比較,但須註明 runtime)。
+   - simulated quantization(Phase 4/6 的品質路線)**不得宣稱實測省下多少 VRAM**;記憶體效益一律用 `eff_kv_bits` 欄位做解析計算。
+7. **版本凍結**:每個 venv 建好後立刻 `pip freeze > env/freeze_<venv>.txt`;每個 clone 的 repo 記錄 commit hash 到 `env/versions.json`。實驗中途不升級套件;若被迫升級,舊結果標記 `stale` 並重跑受影響列。
+8. **每個 Phase 結束**:寫 `reports/phaseN.md`(結論先行:第一段回答該 Phase 的問題),`git add -A && git commit`,更新 STATE.json。
+9. **磁碟守門**:任一步驟前若 `df -h ~` 顯示剩餘 < 50 GB,先清理 `~/.cache/huggingface` 中未用的模型再繼續;清不出來就停下回報。
+10. **標註等級**:報告中的每個事實標 `[已驗證]`(自己跑出來的)、`[公開資料]`(引用論文/文件,附連結)、`[推測]`(附推測依據)。
+
+---
+
+## §B 研究問題與論文產出對照
+
+| 編號 | 研究問題 | 主要來源 Phase | 論文對應 |
+|---|---|---|---|
+| RQ1 | 長上下文下,weight quant 與 KV quant 各省多少記憶體、各犧牲多少品質? | P1–P4 | 實驗章 §1:2×2 factorial 主表 |
+| RQ2 | Hybrid Polar-KIVI(K 極座標、V per-token)在同 bit 預算下是否優於 uniform int2/int4 KV? | P6 | 方法章 + 實驗章 §2(主貢獻) |
+| RQ3 | 量化傷害在中文/程式碼/RAG 場景的分布是否不同? | P7 | 實驗章 §3(場景分析) |
+| RQ4 | 128K–1M 極長上下文的單機可行性邊界在哪? | P8 | 討論章(DGX Spark) |
+
+Phase 依賴關係:P0 → P1 → P2 → P3;P4 → P6;P5 與 P4 並行可;P7 需要 P3+P6 的「最佳組合」;P8 獨立(另一台機器);P9 收尾。**P5(TurboQuant)失敗不阻塞任何後續 Phase。**
+
+---
+
+## §C 環境假設與風險登記(執行前逐條驗證)
+
+| # | 假設 | 等級 | 驗證方式 | 失敗時 |
+|---|---|---|---|---|
+| C1 | 實驗機為 Linux x86_64、RTX 4090 24GB、driver ≥ 550、可上網、磁碟可用 ≥ 300 GB | 前提 | `scripts/probe_env.py` | 停,回報使用者 |
+| C2 | Qwen2.5-7B-Instruct 預設 config 只有 32K;>32K 需加 YaRN `rope_scaling`(factor 4.0)`[公開資料:Qwen2.5 model card]` | 已知事實 | P0 建立 yarn64k config 變體 | — |
+| C3 | 官方量化權重 `Qwen/Qwen2.5-7B-Instruct-AWQ`、`...-GPTQ-Int4` 存在且 vLLM 可直接載入 | 高信心 | P0 下載 + P2 smoke | 改用 GPTQModel/llm-compressor 自行量化(附錄 O1 模式) |
+| C4 | transformers 的 quantized KV cache(quanto backend, nbits 2/4)可在 Qwen2.5 上用 | 高信心 | probe 的 0.5B smoke test | 換 HQQ backend;再不行,Phase 4 只跑 hybrid 與 fp16 對照 |
+| C5 | 安裝版 vLLM 含 TurboQuant KV backend `[待驗證:2026 年新功能,本文件不假設存在]` | 低信心 | probe import + `vllm serve --help` | 走 §Phase 5 fallback 決策樹 |
+| C6 | KIVI / KVQuant 官方 repo **不支援 Qwen2.5**(支援 Llama/Mistral 系)`[公開資料]` | 已知限制 | — | 本計畫預設用 quanto cache 當 KIVI-style 代理;官方 repo 列為附錄 O2 選配 |
+| C7 | DGX Spark 為 aarch64,**不可**沿用 x86 pip wheels;需用 NVIDIA playbook 容器 | 已知事實 | P8 開始時驗證 | 只跑容器內建 runtime |
+| C8 | `datasets` 3.x 已移除 script-based dataset;LongBench/PG-19 需 `datasets==2.21.*` + `trust_remote_code=True` | 高信心 | P0 安裝即固定 | 改用 parquet 鏡像(gen_prompts 內建 fallback 鏈) |
+
+---
+
+## §D 目錄結構與資料表 Schema
+
+```
+~/kvq-exp/
+├── EXPERIMENT_RUNBOOK.md   # 本檔
+├── STATE.json              # 進度(附錄 T1)
+├── ISSUES.md               # 失敗、診斷、偏離紀錄(附錄 T2)
+├── env/                    # probe 結果、pip freeze、versions.json
+├── scripts/                # 全部腳本(附錄 S,Phase 0 寫入)
+├── models/                 # yarn64k config 變體(hardlink,不重複占空間)
+├── prompts/                # 凍結 prompt 集 + MANIFEST.json
+├── results/
+│   ├── perf.csv            # 速度/容量(schema 見下)
+│   ├── quality.csv         # 品質(schema 見下)
+│   └── raw/                # 每次執行的原始 JSONL / bench JSON
+├── reports/                # phase0.md ... final_report.md
+├── logs/                   # serve log(vLLM 啟動列印的權重大小/KV 容量在這裡撈)
+└── third_party/            # clone 的外部 repo(LongBench 等)
+```
+
+**perf.csv 欄位(PCOLS)**:`run_id, phase, host, runtime, model_id, weight_quant, kv_quant, rope_cfg, ctx_len, batch, in_tok, out_tok, n_trials, ttft_ms_mean, ttft_ms_std, tpot_ms_mean, tpot_ms_std, gen_tps, weights_gb, kv_pool_tokens, vram_peak_gb, eff_kv_bits, status, notes`
+
+**quality.csv 欄位(QCOLS)**:`run_id, phase, host, runtime, model_id, weight_quant, kv_quant, rope_cfg, task, subset, ctx_len, extra, metric, value, n, raw_path, notes`
+
+欄位取值約定:`runtime ∈ {vllm, hf, lmdeploy}`;`weight_quant ∈ {bf16, awq_w4, gptq_w4, w8a8}`;`kv_quant ∈ {fp16, fp8_e4m3, fp8_e5m2, int4_quanto, int2_quanto, hybrid_pk, turbo, int8_lmd, int4_lmd}`;`rope_cfg ∈ {none, yarn4}`;`run_id` 格式 `p<phase>-<簡述>-<日期>`(例 `p3-awq-fp8-0710`)。
+
+---
+
+## Phase 0 — 環境建立與驗證(0.5–1 天)
+
+**目標**:雙 venv 可用、模型與腳本就位、兩個 runtime 都能生成文字。
+
+- [ ] **0.1 建立目錄與 git**
+
+```bash
+cd ~/kvq-exp
+mkdir -p env scripts prompts results/raw reports logs models third_party
+git init 2>/dev/null; cp /dev/null ISSUES.md
+cat > .gitignore <<'EOF'
+models/
+logs/
+third_party/
+venv-*/
+__pycache__/
+*.pyc
+EOF
+```
+
+- [ ] **0.2 建立 STATE.json 與 ISSUES.md**(內容照附錄 T1/T2 原樣寫入)
+
+- [ ] **0.3 寫入全部腳本**:把附錄 S1–S15 的每個檔案**原樣**寫到 `scripts/` 下。完成後檢查:
+
+```bash
+ls scripts/ | sort
+# 預期 15 個檔案:aggregate.py bench_hf.py cachelib.py gen_prompts.py hybrid_cache.py
+#   kv_math.py parse_vllm_bench.py ppl_eval.py ppl_vllm.py prep_models.py probe_env.py
+#   reslog.py run_longbench.py run_niah.py test_hybrid_cache.py
+python -m py_compile scripts/*.py && echo COMPILE_OK   # 預期輸出 COMPILE_OK
+```
+
+- [ ] **0.4 建立雙 venv**(需要 `uv`;沒有就 `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+
+```bash
+uv venv venv-vllm --python 3.12
+source venv-vllm/bin/activate
+uv pip install vllm datasets==2.21.0 requests
+pip freeze > env/freeze_vllm.txt
+python scripts/probe_env.py --venv vllm      # 預期:除 vllm_turboquant 外全 PASS
+deactivate
+
+uv venv venv-hf --python 3.12
+source venv-hf/bin/activate
+uv pip install "transformers>=4.51" accelerate "datasets==2.21.0" optimum-quanto \
+  huggingface_hub requests pytest pandas tabulate jieba fuzzywuzzy rouge python-Levenshtein
+pip freeze > env/freeze_hf.txt
+python scripts/probe_env.py --venv hf        # 預期:全 PASS(含 0.5B quantized-cache smoke)
+```
+
+> 若 `quantized_cache_smoke` FAIL:先試 `uv pip install -U optimum-quanto`;再 FAIL 就把 backend 換成 HQQ(`uv pip install hqq`,cache_config backend 改 `"HQQ"`),並在 ISSUES.md 記錄(觸犯假設 C4)。
+
+- [ ] **0.5 下載模型 + 建立 YaRN-64K config 變體**(venv-hf;約 28 GB 下載)
+
+```bash
+python scripts/prep_models.py
+# 預期:models/ 下出現 4 個 *-yarn64k 目錄,且列印每個目錄的 rope_scaling 確認行
+```
+
+- [ ] **0.6 單元測試(hybrid cache 的數學正確性)**(venv-hf)
+
+```bash
+python -m pytest scripts/test_hybrid_cache.py -v
+# 預期:7 passed(其中 e2e 測試需要 GPU 與 0.5B 模型)
+```
+
+- [ ] **0.7 vLLM smoke(0.5B)**(venv-vllm)
+
+```bash
+nohup vllm serve models/Qwen2.5-0.5B-Instruct-yarn64k --max-model-len 8192 \
+  --gpu-memory-utilization 0.5 --port 8000 > logs/serve_smoke.log 2>&1 &
+echo $! > logs/serve.pid
+# 等待就緒(最多 10 分鐘):
+until curl -s http://127.0.0.1:8000/v1/models | grep -q yarn64k; do sleep 10; done
+curl -s http://127.0.0.1:8000/v1/chat/completions -H 'Content-Type: application/json' -d '{
+  "model": "models/Qwen2.5-0.5B-Instruct-yarn64k", "temperature": 0, "max_tokens": 32,
+  "messages": [{"role":"user","content":"用一句話介紹量子力學"}]}'
+kill $(cat logs/serve.pid)
+```
+
+- [ ] **0.8 記錄版本與提交**:把 GPU/driver/CUDA/torch/vllm/transformers 版本整理成 `env/versions.json`(probe 的兩個 json 已含大半,補上 `nvidia-smi` 的 driver 版本);`git add -A && git commit -m "phase0: env ready"`。
+
+**驗收(全部满足才算完成)**:
+1. `env/probe_vllm.json`、`env/probe_hf.json` 中 required checks 全 PASS(turboquant 除外,其結果照實記錄)。
+2. pytest 7/7 通過。
+3. 0.7 的 curl 回傳非空中文句子。
+4. `models/` 下 4 個 yarn64k 目錄存在且 config.json 含 `"type": "yarn"`。
+5. `reports/phase0.md` 已寫(含 turboquant probe 結果 → 決定 Phase 5 走 A 或 B 路線)。
+
+---
+
+## Phase 1 — BF16 baseline + 凍結 prompt 集(0.5–1 天)
+
+**目標**:建立 4K–64K 的速度/容量基準曲線與品質基準;生成並凍結全部評測 prompts。
+
+- [ ] **1.1 生成凍結 prompt 集**(venv-hf;一次性,之後任何 Phase 不得重生成)
+
+```bash
+python scripts/gen_prompts.py --seed 42
+# 預期:prompts/niah_zh.jsonl, niah_en.jsonl, niah_code.jsonl 各 60 筆(4 ctx × 5 depth × 3 樣本)
+#       prompts/MANIFEST.json 含三個檔案的 sha256
+git add prompts/ && git commit -m "phase1: freeze prompt sets"
+```
+
+- [ ] **1.2 印出解析 KV 預算表**(寫進 reports/phase1.md 開頭,之後對照實測)
+
+```bash
+python scripts/kv_math.py    # 預期第一行:FP16 KV = 56.0 KiB/token
+```
+
+- [ ] **1.3 啟動 BF16+YaRN server 並跑速度網格**(venv-vllm)
+
+```bash
+nohup vllm serve models/Qwen2.5-7B-Instruct-yarn64k --max-model-len 66560 \
+  --gpu-memory-utilization 0.92 --port 8000 > logs/serve_p1_bf16.log 2>&1 &
+echo $! > logs/serve.pid
+until curl -s http://127.0.0.1:8000/v1/models | grep -q yarn64k; do sleep 15; done
+
+# 從 serve log 撈權重占用與 KV 容量(寫入 perf.csv 的 weights_gb / kv_pool_tokens):
+grep -iE "model weights|weights took|KV cache size|GPU blocks" logs/serve_p1_bf16.log
+
+# 速度網格:ctx × concurrency(64K 只跑 1/4)
+for IN in 4096 16384 32768 63488; do
+  for C in 1 4 8; do
+    if [ $IN -eq 63488 ] && [ $C -eq 8 ]; then continue; fi
+    N=$((C*3)); [ $N -lt 6 ] && N=6
+    vllm bench serve --base-url http://127.0.0.1:8000 \
+      --model models/Qwen2.5-7B-Instruct-yarn64k \
+      --dataset-name random --random-input-len $IN --random-output-len 256 \
+      --num-prompts $N --max-concurrency $C --seed 42 \
+      --save-result --result-filename results/raw/p1_bf16_${IN}_c${C}.json
+  done
+done
+```
+
+> `[待驗證]` 若 `vllm bench serve` 不存在(舊版):改 `git clone https://github.com/vllm-project/vllm third_party/vllm-bench --depth 1` 後用 `python third_party/vllm-bench/benchmarks/benchmark_serving.py`(參數同名)。任一 bench 因超出 KV 容量而排隊/preempt,照跑照記 —— 排隊後的吞吐就是該配置的真實吞吐。
+
+- [ ] **1.4 把 bench JSON 轉入 perf.csv**(每個 json 一列;venv-vllm)
+
+```bash
+for F in results/raw/p1_bf16_*.json; do
+  IN=$(echo $F | sed -E 's/.*bf16_([0-9]+)_c.*/\1/'); C=$(echo $F | sed -E 's/.*_c([0-9]+)\.json/\1/')
+  python scripts/parse_vllm_bench.py --json $F --run-id p1-bf16 --phase 1 --host 4090 \
+    --runtime vllm --model-id models/Qwen2.5-7B-Instruct-yarn64k --weight-quant bf16 \
+    --kv-quant fp16 --rope-cfg yarn4 --ctx-len $IN --batch $C --eff-kv-bits 16
+done
+```
+
+- [ ] **1.5 品質基準:NIAH(zh/en/code)+ LongBench 子集**(server 續用;venv-hf 執行 client)
+
+```bash
+git clone https://github.com/THUDM/LongBench third_party/LongBench --depth 1
+git -C third_party/LongBench rev-parse HEAD >> env/versions.json
+
+for L in zh en code; do
+  python scripts/run_niah.py --prompts prompts/niah_${L}.jsonl --backend openai \
+    --run-id p1-bf16 --phase 1 --runtime vllm --weight-quant bf16 --kv-quant fp16
+done
+python scripts/run_longbench.py --backend openai --limit 50 \
+  --run-id p1-bf16 --phase 1 --runtime vllm --weight-quant bf16 --kv-quant fp16
+kill $(cat logs/serve.pid)
+```
+
+- [ ] **1.6 YaRN 影響對照(rope_cfg=none)**:用原始 config 起 server(`vllm serve Qwen/Qwen2.5-7B-Instruct --max-model-len 32768 ...`),只重跑 `niah_zh` 中 ctx ≤ 32768 的列(`--max-ctx 32768 --rope-cfg none --run-id p1-bf16-norope`)。此表回答「加 YaRN 對 ≤32K 的品質影響」,供論文附錄。
+
+- [ ] **1.7 WikiText-2 PPL(vLLM 路線,供 P2 對照)**(venv-vllm)
+
+```bash
+python scripts/ppl_vllm.py --model Qwen/Qwen2.5-7B-Instruct \
+  --run-id p1-bf16 --phase 1 --runtime vllm --weight-quant bf16 --kv-quant fp16 --rope-cfg none
+```
+
+- [ ] **1.8 寫 `reports/phase1.md` + commit**。報告必答:BF16 在 64K 的 KV 容量(tokens)與 batch 天花板在哪?NIAH 各深度是否全綠(預期 ≥ 0.95;若 <0.9,先查 prompt 構造再查 YaRN,是 blocker)。
+
+**驗收**:perf.csv 新增 ≥ 11 列 bench(4×3−1)、quality.csv 含 NIAH 3 語言 × 4 ctx × 5 depth 的格點 + LongBench 8 子集 + PPL 1 列;phase1.md 已回答上述兩問。
+
+---
+
+## Phase 2 — AWQ / GPTQ weight-only baseline(0.5–1.5 天)
+
+**目標**:weight-only 的記憶體/速度收益與品質代價(RQ1 前半)。
+
+- [ ] **2.1 AWQ server + 全套量測**:重複 Phase 1.3–1.5 與 1.7,替換:
+  - serve 目標 → `models/Qwen2.5-7B-Instruct-AWQ-yarn64k`
+  - 所有 `--run-id p2-awq --phase 2 --weight-quant awq_w4`,ppl 的 `--model Qwen/Qwen2.5-7B-Instruct-AWQ`
+  - bench 檔名前綴 `p2_awq_`;NIAH 只跑 zh 與 en(code 留給 P7)
+- [ ] **2.2 GPTQ 同上**:`models/Qwen2.5-7B-Instruct-GPTQ-Int4-yarn64k`、`--run-id p2-gptq --weight-quant gptq_w4`、ppl `--model Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4`。
+- [ ] **2.3 對照表**:跑 `python scripts/aggregate.py`,確認 reports/summary_tables.md 中 bf16/awq/gptq 三行可對照(weights_gb、kv_pool_tokens、tokens/s、PPL、NIAH)。
+- [ ] **2.4 寫 `reports/phase2.md` + commit**。必答:AWQ 釋放的 VRAM 換到多少 KV 容量(kv_pool_tokens 對 bf16 的倍數)?PPL 掉多少?**預期模式** `[推測,依文獻]`:weights_gb 約 15→5.6,kv_pool_tokens 約 ×2.5–3,PPL 上升 <5%。若嚴重偏離(如 PPL 爆炸),檢查是否誤載 fp16 反量化路徑。
+
+**驗收**:perf.csv 新增 ≥ 22 列;quality.csv 有 awq/gptq 的 PPL、NIAH(zh+en)、LongBench 各一套;phase2.md 完成。
+
+---
+
+## Phase 3 — FP8 KV + 2×2 Factorial(主表之一;1–1.5 天)
+
+**目標**:回答 RQ1 —— `{bf16, awq} × {fp16 KV, fp8 KV}` 四格,固定同一 runtime(vLLM)。
+
+- [ ] **3.1 四個 server 配置依序跑**(每個都做:速度網格 ctx {16384, 32768, 63488} × conc {1,4} + NIAH zh @32K/62K + LongBench --limit 50):
+
+| run_id | serve 目標 | 額外旗標 |
+|---|---|---|
+| p3-bf16-fp8 | ...-Instruct-yarn64k | `--kv-cache-dtype fp8_e4m3 --calculate-kv-scales` |
+| p3-awq-fp8 | ...-AWQ-yarn64k | `--kv-cache-dtype fp8_e4m3 --calculate-kv-scales` |
+| (p1-bf16 已有) | — | — |
+| (p2-awq 已有) | — | — |
+
+> `[待驗證]` 若 `--calculate-kv-scales` 不被接受或 e4m3 出錯:退 `--kv-cache-dtype fp8_e5m2`(免 scale),kv_quant 記 `fp8_e5m2`,ISSUES.md 記錄。NIAH 用 `--max-ctx 63488`;eff_kv_bits 記 8。
+
+- [ ] **3.2 主表 T3**:`python scripts/aggregate.py` 後,把 2×2 factorial(含 kv_pool_tokens、32K conc=4 的 gen_tps、NIAH@62K acc、LongBench 平均)貼進 `reports/phase3.md`。
+- [ ] **3.3 寫報告 + commit**。必答:(a) 哪一格在 62K 的品質×容量最划算?(b) weight 與 KV 的收益是否可加成(awq+fp8 vs 各自單獨)?
+
+**驗收**:四格皆有速度(≥6 列/格)與品質(NIAH+LongBench)數據,或該格標注 OOM/FAIL 與原因;phase3.md 回答 (a)(b)。
+
+---
+
+## Phase 4 — 研究路線:int4/int2 quantized KV(KIVI-style;1–2 天)
+
+**目標**:低 bit KV 的品質曲線(HF runtime,simulated;為 P6 建立對照組)。
+
+> 命名紀律:transformers+quanto 的 cache 是「KIVI-inspired」實作,表格一律寫 `int4_quanto` / `int2_quanto`,**不寫 KIVI**(官方 KIVI 見附錄 O2)。
+
+- [ ] **4.1 HF runtime smoke(0.5B @32K)**(venv-hf):
+
+```bash
+python scripts/bench_hf.py --model models/Qwen2.5-0.5B-Instruct-yarn64k \
+  --ctx 32768 --kv quanto4 --trials 1 --no-log \
+  --run-id p4-smoke --phase 4 --runtime hf --weight-quant bf16 --kv-quant int4_quanto
+# 預期:印出 TTFT/TPOT 且無 OOM。若 OOM → 查 generate 是否有把 logits 限制在最後一個 token(見 ISSUES)
+```
+
+- [ ] **4.2 品質網格**(7B;每個 kv 配置跑:NIAH zh+en(`--max-ctx 32768`)+ cached-PPL @16K/32K):
+
+```bash
+for KV in fp16 quanto4 quanto2; do
+  for L in zh en; do
+    python scripts/run_niah.py --prompts prompts/niah_${L}.jsonl --backend hf \
+      --hf-model models/Qwen2.5-7B-Instruct-yarn64k --kv $KV --max-ctx 32768 \
+      --run-id p4-$KV --phase 4 --runtime hf --weight-quant bf16 \
+      --kv-quant $(echo $KV | sed 's/quanto\(.\)/int\1_quanto/')
+  done
+  for CTX in 16384 32768; do
+    python scripts/ppl_eval.py --mode cached --model models/Qwen2.5-7B-Instruct-yarn64k \
+      --kv $KV --ctx $CTX --run-id p4-$KV --phase 4 --runtime hf --weight-quant bf16 \
+      --kv-quant $(echo $KV | sed 's/quanto\(.\)/int\1_quanto/')
+  done
+done
+```
+
+> 時間預估 `[推測]`:HF 32K prefill 每題約 20–60 秒,單一 kv 配置的 NIAH(zh+en,90 題 ≤32K)約 1–1.5 小時。fp16 一輪是為了同 runtime 的乾淨對照。
+
+- [ ] **4.3 HF 速度/VRAM 參考列**(僅供內部參考,不與 vLLM 同表):
+
+```bash
+for KV in fp16 quanto4 quanto2; do
+  python scripts/bench_hf.py --model models/Qwen2.5-7B-Instruct-yarn64k \
+    --ctx 16384 32768 --kv $KV --trials 3 --run-id p4-$KV --phase 4 \
+    --runtime hf --weight-quant bf16 --kv-quant $(echo $KV | sed 's/quanto\(.\)/int\1_quanto/')
+done
+```
+
+- [ ] **4.4 寫 `reports/phase4.md` + commit**。必答:int2 相對 int4 的品質崖(NIAH 哪個深度先崩、cached-PPL 差多少)。此答案直接決定 P6 的改良空間。
+
+**驗收**:quality.csv 含 3 配置 × (NIAH 2 語言 + cached-PPL 2 ctx);perf.csv 含 3 配置 × 2 ctx 的 hf 列;phase4.md 完成。
+
+---
+
+## Phase 5 — TurboQuant / 部署級低 bit KV(0.5–2 天;probe-gated)
+
+**目標**:若 runtime 支援,取得「部署級 3–4 bit KV」的實測;不支援則以替代路線補位。**本 Phase 結果不阻塞 P6。**
+
+依 Phase 0 的 `vllm_turboquant` probe 結果走:
+
+- [ ] **5.A(probe PASS)**:用 `vllm serve --help` 找出 turboquant 的啟用旗標(預期形態是 `--kv-cache-dtype` 的新選項或獨立 flag,`[待驗證]`,以 --help 與 vLLM 文件為準,把實際旗標記進 ISSUES.md)。然後複製 Phase 3.1 的量測套路:`p5-bf16-turbo`、`p5-awq-turbo`(速度網格 + NIAH zh @32K/62K + LongBench limit 50),`kv_quant=turbo`,eff_kv_bits 依文件記(預期 3–4)。
+- [ ] **5.B(probe FAIL)**:依序嘗試,任一成功即停:
+  1. `uv pip install -U vllm` 後重跑 probe(版本太舊的情形)。
+  2. **LMDeploy int8/int4 KV 替代**(部署級低 bit KV 的替身):
+     ```bash
+     uv venv venv-lmd --python 3.12 && source venv-lmd/bin/activate && uv pip install lmdeploy
+     lmdeploy serve api_server models/Qwen2.5-7B-Instruct-yarn64k \
+       --quant-policy 8 --session-len 66560 --server-port 8000   # int8 KV;int4 用 --quant-policy 4
+     ```
+     之後用同一套 `run_niah.py --backend openai` 與 `vllm bench serve`(client 端不挑 server)量測,`runtime=lmdeploy`、`kv_quant=int8_lmd/int4_lmd`。**注意:lmdeploy 的速度數字只跟 lmdeploy 自己比。**
+  3. 都不行:Phase 5 記 SKIP(ISSUES.md 說明),論文中 TurboQuant 僅做文獻比較。
+- [ ] **5.C 寫 `reports/phase5.md` + commit**(走了哪條路、為什麼、量到什麼)。
+
+**驗收**:STATE.json 中 phase5.status ∈ {DONE, SKIP} 且 ISSUES.md 有對應紀錄;若 DONE,quality.csv 與 perf.csv 有 turbo 或 lmd 列。
+
+---
+
+## Phase 6 — Hybrid Polar-KIVI(研究主線;3–5 天)
+
+**目標**:回答 RQ2。K 用極座標量化(簡化版 PolarQuant,**independent implementation**)、V 用 per-token 量化,殘差視窗與 P4 對照組一致(128 tokens),在**同 bit 預算**下比較品質。
+
+**bit 預算表**(寫進論文方法章;`eff_kv_bits` 欄位照此填):
+
+| 配置 | Key bits/dim | Value bits/dim | 平均 | 對照 |
+|---|---|---|---|---|
+| int4_quanto(g=64) | 4 + 32/64 = 4.5 | 4.5 | 4.5 | P4 |
+| int2_quanto(g=64) | 2.5 | 2.5 | 2.5 | P4 |
+| hybrid_pk(θ4,r4,v2,g64) | (4+4)/2 + 16/128 ≈ 4.1 | 2 + 32/64 = 2.5 | ≈ 3.3 | 主提案 |
+| hybrid_pk(θ3,r4,v2) | (3+4)/2 + 16/128 ≈ 3.6 | 2.5 | ≈ 3.1 | ablation |
+
+(數值以 `HybridCfg.eff_bits()` 的計算為準,r 的 per-token scale 是每 head 一個 fp16,攤到 head_dim=128。)
+
+- [ ] **6.1 確認單元測試仍全過**(改過任何 scripts 就重跑):`python -m pytest scripts/test_hybrid_cache.py -v` → 7/7。
+- [ ] **6.2 建立配置檔**:
+
+```bash
+mkdir -p prompts/hybrid_cfgs
+cat > prompts/hybrid_cfgs/main.json    <<'EOF'
+{"bits_theta": 4, "bits_r": 4, "bits_v": 2, "v_group": 64, "residual": 128, "use_rotation": true}
+EOF
+cat > prompts/hybrid_cfgs/theta3.json  <<'EOF'
+{"bits_theta": 3, "bits_r": 4, "bits_v": 2, "v_group": 64, "residual": 128, "use_rotation": true}
+EOF
+cat > prompts/hybrid_cfgs/norot.json   <<'EOF'
+{"bits_theta": 4, "bits_r": 4, "bits_v": 2, "v_group": 64, "residual": 128, "use_rotation": false}
+EOF
+cat > prompts/hybrid_cfgs/skip01.json  <<'EOF'
+{"bits_theta": 4, "bits_r": 4, "bits_v": 2, "v_group": 64, "residual": 128, "use_rotation": true, "skip_layers": [0, 1]}
+EOF
+```
+
+- [ ] **6.3 主比較(與 P4 完全同協定)**:對每個 cfg ∈ {main, theta3, norot, skip01}:
+
+```bash
+CFG=main   # 依序換
+for L in zh en; do
+  python scripts/run_niah.py --prompts prompts/niah_${L}.jsonl --backend hf \
+    --hf-model models/Qwen2.5-7B-Instruct-yarn64k --kv hybrid:prompts/hybrid_cfgs/$CFG.json \
+    --max-ctx 32768 --run-id p6-$CFG --phase 6 --runtime hf --weight-quant bf16 --kv-quant hybrid_pk \
+    --notes cfg=$CFG
+done
+for CTX in 16384 32768; do
+  python scripts/ppl_eval.py --mode cached --model models/Qwen2.5-7B-Instruct-yarn64k \
+    --kv hybrid:prompts/hybrid_cfgs/$CFG.json --ctx $CTX \
+    --run-id p6-$CFG --phase 6 --runtime hf --weight-quant bf16 --kv-quant hybrid_pk --notes cfg=$CFG
+done
+```
+
+- [ ] **6.4 判定表 T6**:aggregate 後在 `reports/phase6.md` 排出「eff_kv_bits vs NIAH acc vs cached-PPL」的品質-預算曲線,含 P4 的 int4/int2 兩點。**成功判準**:hybrid main(≈3.4 bits)的 NIAH 與 cached-PPL 至少一項顯著優於 int2_quanto(2.5 bits)且逼近 int4_quanto(4.5 bits);ablation 能說出 rotation 與 θ bit 的貢獻。**若 hybrid 全面不如 int2**:這是有效的負結果 —— 先檢查(依序):單元測試的重建誤差、residual 是否一致、V 端是否才是主誤差(做一個 `bits_v=4` 的加測配置);診斷寫進報告。
+- [ ] **6.5(選配,時間允許)**:進階 ablation 候選(依 6.4 的診斷結果挑一個):`bits_v=4` 加測(驗證 V 端是否為主誤差)、head-wise bit allocation、outlier channel fallback(超過門檻的 channel 保留全精度)、低成本 residual correction。任何一個都要:先開 ISSUES.md 條目描述設計 → 改 HybridCfg → 重跑 pytest 7/7 → 才上 7B。
+- [ ] **6.6 寫報告 + commit**。
+
+**驗收**:quality.csv 含 ≥ 4 個 hybrid 配置 × (NIAH zh+en + cached-PPL 2 ctx);T6 曲線完成;6.4 的成功判準有明確結論(成立/不成立/部分成立 + 證據)。
+
+---
+
+## Phase 7 — 中文 / 程式碼 / RAG 場景評測(1–2 天)
+
+**目標**:回答 RQ3。場景對應:**中文** = LongBench zh 三任務 + niah_zh;**程式碼** = LongBench lcc/repobench-p + niah_code;**RAG/多文件** = LongBench hotpotqa/2wikimqa/passage_retrieval(本 prompt 集的 concat 構造本身就是多文件干擾檢索)。
+
+- [ ] **7.1 選出四個代表配置**:`bf16+fp16`(P1 已有)、P3 最佳格(預期 awq+fp8)、`int2_quanto`、`hybrid main`。前兩者走 vLLM(niah_code 全 ctx + LongBench 全 8 子集 `--limit 100`);後兩者走 HF(`--max-ctx 32768`,LongBench `--backend hf --limit 50`)。
+- [ ] **7.2 缺的格子補跑**(P1–P6 已有的列不重跑,靠 run_id 對照)。
+- [ ] **7.3 場景分析表 T7**:aggregate 後按 `task/subset` 分組,每配置輸出三場景的相對退化(%,相對 bf16+fp16)。寫 `reports/phase7.md`:哪個場景對 KV 低 bit 最敏感?中文與英文的退化是否不對稱?
+- [ ] **7.4 commit**。
+
+**驗收**:T7 完成且每格有 n(樣本數)標注;phase7.md 回答兩個必答題。
+
+---
+
+## Phase 8 — DGX Spark:128K–1M 可行性(1–2 天;另一台機器)
+
+**目標**:回答 RQ4。**Spark 是容量實驗,不是吞吐競賽**(273 GB/s 頻寬,預期 TPOT 明顯慢於 4090,照實記錄即可)。
+
+- [ ] **8.1 環境**:依 NVIDIA DGX Spark playbooks(github.com/NVIDIA/dgx-spark-playbooks)拉 vLLM 容器(aarch64;**不要**沿用 x86 wheels)。把 `scripts/`、`prompts/` 複製過去(純 Python,可攜)。probe:容器內 `python scripts/probe_env.py --venv vllm`。
+- [ ] **8.2 容量階梯**:模型用 `Qwen/Qwen2.5-7B-Instruct`(YaRN 至 131072)與 `Qwen/Qwen2.5-7B-Instruct-1M``[待驗證:1M 模型需要 vLLM 的 dual chunk attention 支援,以容器內 --help 探查;不支援就以 131072 為上限並記錄]`。對每個配置 {bf16+fp16KV, bf16+fp8KV, awq+fp8KV}:
+
+```
+max-model-len 階梯:131072 → 262144 → 524288 → 1048576
+每階:能 serve 起來嗎?單一請求 input=階梯值-2048, output=128:
+  - prefill 完成時間(bench serve 的 TTFT,conc=1, num-prompts 3)
+  - decode tokens/s
+  - 容器內 free memory 峰值
+爬到第一個 FAIL/OOM 為止,該邊界記入 perf.csv(status=OOM)。
+```
+
+- [ ] **8.3 NIAH @128K 抽測**:用 `python scripts/gen_prompts.py --ctx 126976 --samples 2 --langs zh --suffix _128k` 在 Spark 上生成(這是唯一允許的新增 prompt 檔,檔名 `niah_zh_128k.jsonl`,一樣進 MANIFEST),對可跑的配置量 NIAH acc。
+- [ ] **8.4 寫 `reports/phase8.md`(host=spark 的列全部標明)+ 把 CSV 增量帶回主機合併 + commit**。必答:每個配置的最大可行 context;fp8 KV 把邊界推多遠;1M 是否達成(哪個配置)。
+
+**驗收**:perf.csv 含 host=spark 的階梯列(含 OOM 邊界列);phase8.md 回答必答題。
+
+---
+
+## Phase 9 — 彙整與最終報告(0.5–1 天)
+
+- [ ] **9.1** `python scripts/aggregate.py` → `reports/summary_tables.md`(自動生成 T1/T3/T6/T7 主表)。
+- [ ] **9.2** 寫 `reports/final_report.md`,結構:
+  1. 一段話總結論(RQ1–RQ4 各一句,標註證據等級)。
+  2. 主表 T3(factorial)、T6(hybrid 品質-預算曲線)、T7(場景)、T8(Spark 邊界)。
+  3. 與文獻宣稱的對照(哪些復現一致、哪些不一致,附 run_id)。
+  4. 偏離與失敗清單(從 ISSUES.md 彙整)。
+  5. 下一步(論文寫作用):哪張表進正文、哪些進附錄。
+- [ ] **9.3** 全部 commit;STATE.json 標記完成。
+
+**驗收**:final_report.md 的每個數字都能 grep 到對應 CSV 列(抽查 5 個);ISSUES.md 中每條 open issue 都有結論或明確遺留說明。
+
+---
+
+## 附錄 O — 選配 Phase(預設 SKIP;只在主線完成且時間允許時做)
+
+- **O1 SmoothQuant W8A8**(補齊七方法版圖):新 venv 裝 `llmcompressor`,recipe = `SmoothQuantModifier(smoothing_strength=0.8)` + `GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"])`,`oneshot(model="Qwen/Qwen2.5-7B-Instruct", dataset="open_platypus", num_calibration_samples=256, max_seq_length=2048, output_dir="models/qwen7b-w8a8")``[待驗證:llmcompressor 的 oneshot import 路徑隨版本移動,以其 README 為準]`;產出目錄補 yarn config 後用 vLLM 跑 Phase 2 套路,`weight_quant=w8a8`。
+- **O2 官方 KIVI / KVQuant(paper-faithful 對照)**:模型換 `meta-llama/Llama-2-7b-hf`(需 HF 授權)或 Mistral-7B;各自照 repo README 建獨立 conda env。**timebox 各 1 天**:1 天內跑不出 repo 自帶的 demo/eval 就記 SKIP + ISSUES。結果只作「趨勢對照」,不進主表(模型不同)。
+- **O3 QuaRot / SpinQuant(方向二加分題)**:`spcl/quarot`、`facebookresearch/SpinQuant`,同樣 timebox 各 1 天的 feasibility 探查,產出是 ISSUES.md 的可行性紀錄,不承諾數據。
+- **O4 RULER 完整版**:NVIDIA/RULER repo 支援 vLLM serving;若 NIAH 網格不足以支撐審稿,再上。
+
+---
+
+## 附錄 S — 全部腳本(Phase 0.3 原樣寫入 `scripts/`)
+
+### S1 `scripts/reslog.py`
+
+```python
+"""統一的結果落盤:所有腳本只透過這兩個函式寫 CSV。"""
+import csv, os
+
+PCOLS = ["run_id","phase","host","runtime","model_id","weight_quant","kv_quant","rope_cfg",
+         "ctx_len","batch","in_tok","out_tok","n_trials","ttft_ms_mean","ttft_ms_std",
+         "tpot_ms_mean","tpot_ms_std","gen_tps","weights_gb","kv_pool_tokens","vram_peak_gb",
+         "eff_kv_bits","status","notes"]
+QCOLS = ["run_id","phase","host","runtime","model_id","weight_quant","kv_quant","rope_cfg",
+         "task","subset","ctx_len","extra","metric","value","n","raw_path","notes"]
+
+def _append(path, cols, row):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    new = not os.path.exists(path)
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        if new:
+            w.writeheader()
+        w.writerow({k: row.get(k, "") for k in cols})
+
+def log_perf(row, path="results/perf.csv"):
+    _append(path, PCOLS, row)
+
+def log_quality(row, path="results/quality.csv"):
+    _append(path, QCOLS, row)
+
+def meta_args(ap):
+    """各腳本共用的 bookkeeping 參數。"""
+    ap.add_argument("--run-id", required=True)
+    ap.add_argument("--phase", required=True)
+    ap.add_argument("--host", default="4090")
+    ap.add_argument("--runtime", required=True, choices=["vllm", "hf", "lmdeploy"])
+    ap.add_argument("--weight-quant", required=True)
+    ap.add_argument("--kv-quant", required=True)
+    ap.add_argument("--rope-cfg", default="yarn4")
+    ap.add_argument("--notes", default="")
+    return ap
+```
+
+### S2 `scripts/cachelib.py`
+
+```python
+"""HF runtime 的 cache 工廠與 forward 兼容層(transformers 版本差異都關在這裡)。"""
+import json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+def make_cache(kv: str):
+    """kv: fp16 | quanto4 | quanto2 | hybrid:<cfg.json 路徑>"""
+    if kv == "fp16":
+        from transformers import DynamicCache
+        return DynamicCache()
+    if kv.startswith("quanto"):
+        from transformers import QuantizedCacheConfig, QuantoQuantizedCache
+        cfg = QuantizedCacheConfig(backend="quanto", nbits=int(kv[-1]),
+                                   q_group_size=64, residual_length=128)
+        try:
+            return QuantoQuantizedCache(cfg)
+        except TypeError:  # 某些版本吃 keyword
+            return QuantoQuantizedCache(cache_config=cfg)
+    if kv.startswith("hybrid:"):
+        from hybrid_cache import HybridCfg, HybridPolarKiviCache
+        with open(kv.split(":", 1)[1], encoding="utf-8") as f:
+            return HybridPolarKiviCache(HybridCfg(**json.load(f)))
+    raise ValueError(f"unknown kv config: {kv}")
+
+EFF_BITS = {"fp16": 16, "quanto4": 4.5, "quanto2": 2.5}  # hybrid 用 cfg.eff_bits()
+
+def fwd(model, ids, cache):
+    """帶 cache 的單次 forward;只保留最後一個位置的 logits 以省 VRAM(旗標名隨版本變)。"""
+    for kw in ({"logits_to_keep": 1}, {"num_logits_to_keep": 1}, {}):
+        try:
+            return model(input_ids=ids, past_key_values=cache, use_cache=True, **kw)
+        except TypeError:
+            continue
+    raise RuntimeError("forward failed with all logits-kwarg variants")
+```
+
+### S3 `scripts/hybrid_cache.py`
+
+```python
+"""Hybrid Polar-KIVI KV cache(研究鷹架,simulated quantization)。
+
+Key   : 極座標量化 —— 旋轉後把 channel 兩兩配對 -> (r, theta);theta 均勻量化 bits_theta bit,
+        r 逐 token 以非負均勻量化 bits_r bit。這是 PolarQuant 想法的簡化獨立實作
+        (independent implementation),不是 Google 官方程式碼。
+Value : KIVI 風格 per-token 非對稱均勻量化(bits_v bit,沿 channel 每 v_group 一組 scale/zero)。
+共同  : 最近 residual 個 token 保持全精度(KIVI 的 residual window)。
+Simulated = 量化後立刻反量化、仍以 bf16 存放:品質影響是真的,記憶體節省是解析值
+(用 eff_bits_* 計,不得宣稱實測 VRAM 節省)。已在 transformers 4.5x 驗證 DynamicCache.update
+回傳的張量即內部儲存,原地覆寫會保留;若升級後 e2e 測試失敗,先查這個假設。"""
+import math
+from dataclasses import dataclass, field
+
+import torch
+from transformers.cache_utils import DynamicCache
+
+
+@dataclass
+class HybridCfg:
+    bits_theta: int = 4
+    bits_r: int = 4
+    bits_v: int = 2
+    v_group: int = 64
+    residual: int = 128
+    rot_seed: int = 0
+    use_rotation: bool = True
+    skip_layers: tuple = field(default_factory=tuple)  # 保持全精度的層(mixed-precision ablation)
+
+    def eff_bits_key(self):
+        # 每 2 個 channel 存 1 個角度 + 1 個半徑;每 token 另存 1 個 fp16 的 r_max scale
+        return (self.bits_theta + self.bits_r) / 2 + 16 / 128
+    def eff_bits_value(self):
+        return self.bits_v + 32 / self.v_group  # 每組 fp16 scale + fp16 zero
+    def eff_bits(self):
+        return round((self.eff_bits_key() + self.eff_bits_value()) / 2, 2)
+
+
+def random_orthogonal(d: int, seed: int = 0) -> torch.Tensor:
+    g = torch.Generator().manual_seed(seed)
+    a = torch.randn(d, d, generator=g)
+    q, r = torch.linalg.qr(a)
+    return q * torch.sign(torch.diagonal(r))  # 固定符號,消除 QR 不唯一性
+
+
+def polar_fakequant(x: torch.Tensor, bits_theta: int, bits_r: int,
+                    rot: torch.Tensor | None) -> torch.Tensor:
+    """x: (..., d), d 為偶數。回傳同 shape、同 dtype 的量化-反量化結果。"""
+    orig_dtype = x.dtype
+    x = x.float()
+    if rot is not None:
+        x = x @ rot
+    pairs = x.view(*x.shape[:-1], -1, 2)
+    r = torch.linalg.vector_norm(pairs, dim=-1)                    # (..., d/2), >= 0
+    theta = torch.atan2(pairs[..., 1], pairs[..., 0])              # [-pi, pi)
+    L = 2 ** bits_theta
+    q_theta = torch.round((theta + math.pi) * L / (2 * math.pi)) % L
+    theta_hat = q_theta * (2 * math.pi / L) - math.pi
+    Lr = 2 ** bits_r - 1
+    r_max = r.amax(dim=-1, keepdim=True).clamp(min=1e-6)           # 每 token 一個 scale
+    q_r = torch.round(r / r_max * Lr).clamp(0, Lr)
+    r_hat = q_r / Lr * r_max
+    y = torch.stack((r_hat * torch.cos(theta_hat), r_hat * torch.sin(theta_hat)), dim=-1)
+    y = y.reshape(*x.shape)
+    if rot is not None:
+        y = y @ rot.T
+    return y.to(orig_dtype)
+
+
+def pertoken_fakequant(v: torch.Tensor, bits: int, group: int) -> torch.Tensor:
+    """v: (..., d)。沿最後一維每 group 個 channel 一組,非對稱均勻量化(KIVI value 風格)。"""
+    orig_dtype = v.dtype
+    x = v.float()
+    g = x.view(*x.shape[:-1], -1, group)
+    vmin = g.amin(dim=-1, keepdim=True)
+    vmax = g.amax(dim=-1, keepdim=True)
+    L = 2 ** bits - 1
+    scale = ((vmax - vmin) / L).clamp(min=1e-8)
+    q = torch.round((g - vmin) / scale).clamp(0, L)
+    return (q * scale + vmin).reshape(*v.shape).to(orig_dtype)
+
+
+class HybridPolarKiviCache(DynamicCache):
+    def __init__(self, cfg: HybridCfg):
+        super().__init__()
+        self.cfg = cfg
+        self.q_ptr: dict[int, int] = {}   # 每層已量化到的 token index
+        self._rot: torch.Tensor | None = None
+
+    def _rotation(self, d: int, device) -> torch.Tensor:
+        if self._rot is None or self._rot.shape[0] != d:
+            self._rot = random_orthogonal(d, self.cfg.rot_seed).float()
+        if self._rot.device != device:
+            self._rot = self._rot.to(device)
+        return self._rot
+
+    def update(self, key_states, value_states, layer_idx, cache_kwargs=None):
+        k, v = super().update(key_states, value_states, layer_idx, cache_kwargs)
+        boundary = k.shape[-2] - self.cfg.residual
+        done = self.q_ptr.get(layer_idx, 0)
+        if boundary > done:
+            if layer_idx not in tuple(self.cfg.skip_layers):
+                sl = slice(done, boundary)
+                rot = self._rotation(k.shape[-1], k.device) if self.cfg.use_rotation else None
+                k[..., sl, :] = polar_fakequant(k[..., sl, :],
+                                                self.cfg.bits_theta, self.cfg.bits_r, rot)
+                v[..., sl, :] = pertoken_fakequant(v[..., sl, :],
+                                                   self.cfg.bits_v, self.cfg.v_group)
+            self.q_ptr[layer_idx] = boundary
+        return k, v
+```
+
+### S4 `scripts/test_hybrid_cache.py`
+
+```python
+import math
+
+import pytest
+import torch
+
+from hybrid_cache import (HybridCfg, HybridPolarKiviCache, pertoken_fakequant,
+                          polar_fakequant, random_orthogonal)
+
+torch.manual_seed(0)  # 測試資料固定,避免統計性斷言偶發飄移
+
+
+def rel_err(a, b):
+    return (torch.linalg.vector_norm((a - b).float())
+            / torch.linalg.vector_norm(b.float())).item()
+
+
+def test_rotation_orthogonal():
+    q = random_orthogonal(128, seed=0)
+    assert torch.allclose(q @ q.T, torch.eye(128), atol=1e-5)
+
+
+def test_polar_high_bits_near_exact():
+    x = torch.randn(2, 4, 64, 128)
+    y = polar_fakequant(x, bits_theta=16, bits_r=16, rot=random_orthogonal(128))
+    assert rel_err(y, x) < 1e-2
+
+
+def test_polar_4bit_reasonable():
+    x = torch.randn(2, 4, 256, 128)
+    y = polar_fakequant(x, bits_theta=4, bits_r=4, rot=random_orthogonal(128))
+    e = rel_err(y, x)
+    assert 0.02 < e < 0.25, f"unexpected rel err {e}"
+
+
+def test_pertoken_monotonic_in_bits():
+    v = torch.randn(2, 4, 256, 128)
+    e2 = rel_err(pertoken_fakequant(v, 2, 64), v)
+    e4 = rel_err(pertoken_fakequant(v, 4, 64), v)
+    assert e4 < e2 < 0.6
+
+
+def test_cache_residual_untouched():
+    cfg = HybridCfg(residual=128)
+    cache = HybridPolarKiviCache(cfg)
+    k0 = torch.randn(1, 4, 300, 128)
+    v0 = torch.randn(1, 4, 300, 128)
+    k, v = cache.update(k0.clone(), v0.clone(), 0)
+    assert torch.equal(k[..., -128:, :], k0[..., -128:, :])   # 殘差窗完全不動
+    assert not torch.equal(k[..., :172, :], k0[..., :172, :])  # 窗外必然被改
+    assert not torch.equal(v[..., :172, :], v0[..., :172, :])
+    assert cache.q_ptr[0] == 172
+
+
+def test_cache_multi_update_pointer():
+    cfg = HybridCfg(residual=50)
+    cache = HybridPolarKiviCache(cfg)
+    a = torch.randn(1, 4, 100, 128)
+    b = torch.randn(1, 4, 100, 128)
+    cache.update(a.clone(), a.clone(), 0)
+    k, _ = cache.update(b.clone(), b.clone(), 0)
+    assert k.shape[-2] == 200 and cache.q_ptr[0] == 150
+    assert torch.equal(k[..., -50:, :], b[..., -50:, :])
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs GPU")
+def test_e2e_generation_matches_fp16_when_nothing_quantized():
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    mid = "Qwen/Qwen2.5-0.5B-Instruct"
+    tok = AutoTokenizer.from_pretrained(mid)
+    model = AutoModelForCausalLM.from_pretrained(mid, torch_dtype=torch.bfloat16,
+                                                 device_map="cuda")
+    ids = tok.apply_chat_template([{"role": "user", "content": "請背誦圓周率前十位。"}],
+                                  add_generation_prompt=True, return_tensors="pt").to("cuda")
+    def gen(cache):
+        with torch.no_grad():
+            out = model.generate(ids, max_new_tokens=48, do_sample=False,
+                                 past_key_values=cache)
+        return out[0].tolist()
+    from transformers import DynamicCache
+    ref = gen(DynamicCache())
+    # residual 大於總長 -> 什麼都不量化 -> 必須與 fp16 完全一致(驗證管線本身無副作用)
+    same = gen(HybridPolarKiviCache(HybridCfg(residual=4096)))
+    assert same == ref
+    # 低 bit 真量化 -> 需正常跑完並產出等長輸出(品質另由 Phase 6 量測)
+    low = gen(HybridPolarKiviCache(HybridCfg(bits_theta=4, bits_r=4, bits_v=2, residual=32)))
+    assert len(low) == len(ref)
+```
+
+### S5 `scripts/probe_env.py`
+
+```python
+#!/usr/bin/env python3
+"""Phase-0 環境探查。分別在兩個 venv 各跑一次:python scripts/probe_env.py --venv hf|vllm"""
+import argparse, importlib, json, os, shutil, subprocess, sys
+from datetime import datetime, timezone
+
+
+def sh(cmd):
+    try:
+        return subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                              timeout=120).stdout.strip()
+    except Exception as e:  # noqa: BLE001
+        return f"ERROR: {e}"
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--venv", choices=["hf", "vllm"], required=True)
+    a = ap.parse_args()
+    info = {"time": datetime.now(timezone.utc).isoformat(), "venv": a.venv,
+            "python": sys.version, "checks": {}}
+
+    def check(name, passed, detail=""):
+        info["checks"][name] = {"pass": bool(passed), "detail": str(detail)[:500]}
+        print(f"[{'PASS' if passed else 'FAIL'}] {name}: {str(detail)[:200]}")
+
+    smi = sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader")
+    check("nvidia_smi", smi and "ERROR" not in smi, smi)
+    free_gb = shutil.disk_usage(os.path.expanduser("~")).free / 1e9
+    check("disk_free_300gb", free_gb >= 300, f"{free_gb:.0f} GB free")
+    try:
+        import torch
+        check("torch_cuda", torch.cuda.is_available(),
+              f"torch {torch.__version__}, cuda {torch.version.cuda}, "
+              f"{torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no dev'}")
+    except Exception as e:  # noqa: BLE001
+        check("torch_cuda", False, e)
+
+    if a.venv == "hf":
+        for mod in ["transformers", "datasets", "optimum.quanto", "accelerate"]:
+            try:
+                m = importlib.import_module(mod)
+                check(f"import_{mod}", True, getattr(m, "__version__", "ok"))
+            except Exception as e:  # noqa: BLE001
+                check(f"import_{mod}", False, e)
+        try:  # quantized-cache smoke(首次會下載 0.5B,約 1 GB)
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            mid = "Qwen/Qwen2.5-0.5B-Instruct"
+            tok = AutoTokenizer.from_pretrained(mid)
+            model = AutoModelForCausalLM.from_pretrained(mid, torch_dtype=torch.bfloat16,
+                                                         device_map="cuda")
+            ids = tok.apply_chat_template([{"role": "user", "content": "1+1=?"}],
+                                          add_generation_prompt=True,
+                                          return_tensors="pt").to("cuda")
+            out = model.generate(ids, max_new_tokens=16, do_sample=False,
+                                 cache_implementation="quantized",
+                                 cache_config={"backend": "quanto", "nbits": 4})
+            txt = tok.decode(out[0, ids.shape[1]:], skip_special_tokens=True)
+            check("quantized_cache_smoke", len(txt.strip()) > 0, txt[:80])
+        except Exception as e:  # noqa: BLE001
+            check("quantized_cache_smoke", False, e)
+    else:
+        try:
+            import vllm
+            check("vllm_import", True, vllm.__version__)
+        except Exception as e:  # noqa: BLE001
+            check("vllm_import", False, e)
+        try:  # informational:TurboQuant 是否存在(假設 C5)
+            importlib.import_module("vllm.model_executor.layers.quantization.turboquant")
+            check("vllm_turboquant", True, "module present -> Phase 5 走 A 路線")
+        except Exception as e:  # noqa: BLE001
+            check("vllm_turboquant", False,
+                  f"not found ({type(e).__name__}) -> Phase 5 走 B fallback")
+
+    os.makedirs("env", exist_ok=True)
+    path = f"env/probe_{a.venv}.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(info, f, indent=2, ensure_ascii=False)
+    required_fail = [k for k, r in info["checks"].items()
+                     if not r["pass"] and k != "vllm_turboquant"]
+    print(("ALL REQUIRED PASS" if not required_fail
+           else f"REQUIRED FAIL: {required_fail}") + f" -> {path}")
+    sys.exit(1 if required_fail else 0)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### S6 `scripts/kv_math.py`
+
+```python
+#!/usr/bin/env python3
+"""GQA 模型的 KV cache 解析預算表(payload only,不含 paged-cache/metadata 開銷)。"""
+import argparse
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--layers", type=int, default=28)
+ap.add_argument("--kv-heads", type=int, default=4)
+ap.add_argument("--head-dim", type=int, default=128)
+a = ap.parse_args()
+
+per_tok_fp16 = 2 * a.layers * a.kv_heads * a.head_dim * 2  # K+V, bytes @ 16-bit
+print(f"FP16 KV = {per_tok_fp16 / 1024:.1f} KiB/token")
+fmts = {"fp16": 16, "fp8": 8, "int4.5": 4.5, "hybrid3.3": 3.3, "int2.5": 2.5}
+print("| context | " + " | ".join(fmts) + " |")
+print("|---|" + "---|" * len(fmts))
+for c in [4096, 16384, 32768, 65536, 131072, 262144, 1048576]:
+    row = [f"{per_tok_fp16 * c * b / 16 / 2**30:.2f}" for b in fmts.values()]
+    label = f"{c // 1024}K" if c < 1048576 else "1M"
+    print(f"| {label} | " + " | ".join(row) + " | (GiB)")
+```
+
+### S7 `scripts/prep_models.py`
+
+```python
+#!/usr/bin/env python3
+"""下載模型並建立 YaRN-64K config 變體(hardlink 省空間;config.json 重寫避免污染快取)。
+YaRN 做法依 Qwen2.5 model card:rope_scaling = {type: yarn, factor: 4.0, orig: 32768}。"""
+import json, os, shutil
+
+from huggingface_hub import snapshot_download
+
+IDS = ["Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-7B-Instruct-AWQ",
+       "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4", "Qwen/Qwen2.5-0.5B-Instruct"]
+
+for mid in IDS:
+    src = snapshot_download(mid)
+    dst = "models/" + mid.split("/")[1] + "-yarn64k"
+    if not os.path.exists(dst):
+        shutil.copytree(src, dst, copy_function=os.link)  # hardlink,不重複占空間
+    cfg_path = os.path.join(dst, "config.json")
+    with open(cfg_path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    os.remove(cfg_path)  # 重要:先斷 hardlink,否則會改到 HF 快取裡的原檔
+    cfg["rope_scaling"] = {"type": "yarn", "factor": 4.0,
+                           "original_max_position_embeddings": 32768}
+    cfg["max_position_embeddings"] = 131072
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    print(f"{mid} -> {dst}  rope_scaling={cfg['rope_scaling']}")
+```
+
+### S8 `scripts/gen_prompts.py`
+
+```python
+#!/usr/bin/env python3
+"""生成並凍結 NIAH 長上下文評測集(Phase 1.1 跑一次,之後不得重生成)。
+輸出 prompts/niah_{zh,en,code}.jsonl 與 MANIFEST.json(sha256 鎖定)。
+語料:zh=LongBench(multifieldqa_zh/dureader 的 context)、en=PG-19(fallback wikitext-103)、
+code=codeparrot-clean-valid。全部以 Qwen tokenizer 控長。"""
+import argparse, hashlib, json, os, random
+
+from datasets import load_dataset
+from transformers import AutoTokenizer
+
+TOK = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B-Instruct")
+
+NEEDLE = {
+    "zh": ("本文件的通關密語是 {code}。請務必記住這個密語。",
+           "文件中藏有一個通關密語(格式 KEY-XXXXXX),請找出並只回答該密語。"),
+    "en": ("The secret passcode of this document is {code}. Remember it carefully.",
+           "A secret passcode (format KEY-XXXXXX) is hidden in the document. "
+           "Reply with ONLY the passcode."),
+    "code": ("# NOTE: deployment passcode is {code} (do not remove this line)",
+             "A deployment passcode (format KEY-XXXXXX) is hidden in a code comment. "
+             "Reply with ONLY the passcode."),
+}
+
+
+def load_corpus(lang, n_docs=300):
+    docs = []
+    if lang == "zh":
+        for sub in ["multifieldqa_zh", "dureader"]:
+            try:
+                ds = load_dataset("THUDM/LongBench", sub, split="test",
+                                  trust_remote_code=True)
+            except Exception:  # org 更名 fallback
+                ds = load_dataset("zai-org/LongBench", sub, split="test",
+                                  trust_remote_code=True)
+            docs += [x["context"] for x in ds]
+    elif lang == "en":
+        try:
+            ds = load_dataset("deepmind/pg19", split="test", trust_remote_code=True)
+            docs = [x["text"] for x in ds]
+        except Exception:
+            joined = "\n".join(load_dataset("wikitext", "wikitext-103-raw-v1",
+                                            split="test")["text"])
+            docs = [joined[i:i + 200_000] for i in range(0, len(joined), 200_000)]
+    elif lang == "code":
+        ds = load_dataset("codeparrot/codeparrot-clean-valid", split="train",
+                          streaming=True)
+        for i, x in enumerate(ds):
+            if i >= n_docs * 2:
+                break
+            docs.append(x["content"])
+    docs = [d for d in docs if len(d) > 2000]
+    return docs[:n_docs]
+
+
+def build_context(docs, target_tokens, rng):
+    parts, total = [], 0
+    while total < target_tokens + 1024:
+        d = docs[rng.randrange(len(docs))]
+        parts.append(d)
+        total += len(TOK(d, add_special_tokens=False).input_ids)
+    text = "\n\n===== 文件分隔 / DOCUMENT SPLIT =====\n\n".join(parts)
+    ids = TOK(text, add_special_tokens=False).input_ids[:target_tokens]
+    return TOK.decode(ids)
+
+
+def make_one(docs, lang, ctx_tokens, depth, rng, idx):
+    code = "KEY-" + "".join(rng.choice("ABCDEF0123456789") for _ in range(6))
+    needle_tpl, question = NEEDLE[lang]
+    needle = needle_tpl.format(code=code)
+    ctx = build_context(docs, ctx_tokens, rng)
+    pos = int(len(ctx) * depth)
+    cut = ctx.find("。", pos) if lang == "zh" else ctx.find("\n", pos)
+    pos = cut + 1 if cut > 0 else pos
+    ctx = ctx[:pos] + "\n" + needle + "\n" + ctx[pos:]
+    head = "以下是長文件內容:" if lang == "zh" else "Here is a long document:"
+    prompt = f"{head}\n\n{ctx}\n\n{'問題:' if lang == 'zh' else 'Question: '}{question}"
+    return {"id": f"niah-{lang}-{ctx_tokens}-{depth}-{idx}", "mode": "niah", "lang": lang,
+            "ctx_tokens": ctx_tokens, "depth": depth, "needle": code,
+            "question": question, "prompt": prompt}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--ctx", type=int, nargs="+", default=[4096, 16384, 32768, 63488])
+    ap.add_argument("--depths", type=float, nargs="+", default=[0.1, 0.3, 0.5, 0.7, 0.9])
+    ap.add_argument("--samples", type=int, default=3)
+    ap.add_argument("--langs", nargs="+", default=["zh", "en", "code"])
+    ap.add_argument("--suffix", default="")  # Phase 8 的 128K 增量檔用
+    a = ap.parse_args()
+    os.makedirs("prompts", exist_ok=True)
+    mpath = "prompts/MANIFEST.json"
+    manifest = json.load(open(mpath, encoding="utf-8")) if os.path.exists(mpath) else {}
+    for lang in a.langs:
+        rng = random.Random(f"{a.seed}-{lang}")  # 字串 seed:跨行程可重現
+        docs = load_corpus(lang)
+        assert docs, f"corpus empty for {lang}"
+        rows = [make_one(docs, lang, c, d, rng, i)
+                for c in a.ctx for d in a.depths for i in range(a.samples)]
+        path = f"prompts/niah_{lang}{a.suffix}.jsonl"
+        assert not os.path.exists(path), f"{path} 已存在:凍結集不得重生成(§A.6)"
+        with open(path, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        with open(path, "rb") as f:
+            manifest[path] = {"n": len(rows),
+                              "sha256": hashlib.sha256(f.read()).hexdigest()}
+        print(f"{path}: {len(rows)} prompts")
+    with open(mpath, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### S9 `scripts/run_niah.py`
+
+```python
+#!/usr/bin/env python3
+"""對一個配置跑凍結 NIAH 集並計分(判準:needle code 是否出現在回覆,不分大小寫)。
+backend=openai:打 vLLM/LMDeploy 的 OpenAI 相容端點。backend=hf:行程內生成,支援
+quantized/hybrid cache。結果寫 results/quality.csv(每個 ctx×depth 一列)。"""
+import argparse, json, os, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import requests
+
+from reslog import log_quality, meta_args
+
+
+def main():
+    ap = meta_args(argparse.ArgumentParser())
+    ap.add_argument("--prompts", required=True)
+    ap.add_argument("--backend", choices=["openai", "hf"], required=True)
+    ap.add_argument("--base-url", default="http://127.0.0.1:8000")
+    ap.add_argument("--hf-model", default="models/Qwen2.5-7B-Instruct-yarn64k")
+    ap.add_argument("--kv", default="fp16")  # hf 專用:fp16|quanto4|quanto2|hybrid:<cfg>
+    ap.add_argument("--max-ctx", type=int, default=10**9)
+    ap.add_argument("--max-new", type=int, default=64)
+    a = ap.parse_args()
+
+    rows = [json.loads(l) for l in open(a.prompts, encoding="utf-8")]
+    rows = [r for r in rows if r["ctx_tokens"] <= a.max_ctx]
+    assert rows, "no prompts under --max-ctx"
+
+    if a.backend == "openai":
+        served = requests.get(f"{a.base_url}/v1/models", timeout=30).json()["data"][0]["id"]
+        model_id = served
+
+        def gen(prompt):
+            r = requests.post(f"{a.base_url}/v1/chat/completions", timeout=1800, json={
+                "model": served, "temperature": 0, "max_tokens": a.max_new, "seed": 42,
+                "messages": [{"role": "user", "content": prompt}]})
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
+    else:
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        from cachelib import make_cache
+        model_id = a.hf_model
+        tok = AutoTokenizer.from_pretrained(a.hf_model)
+        model = AutoModelForCausalLM.from_pretrained(
+            a.hf_model, torch_dtype=torch.bfloat16, device_map="cuda",
+            attn_implementation="sdpa")
+
+        def gen(prompt):
+            ids = tok.apply_chat_template([{"role": "user", "content": prompt}],
+                                          add_generation_prompt=True,
+                                          return_tensors="pt").to("cuda")
+            with torch.no_grad():
+                out = model.generate(ids, max_new_tokens=a.max_new, do_sample=False,
+                                     past_key_values=make_cache(a.kv))
+            return tok.decode(out[0, ids.shape[1]:], skip_special_tokens=True)
+
+    os.makedirs("results/raw", exist_ok=True)
+    tag = os.path.basename(a.prompts).replace(".jsonl", "")
+    raw_path = f"results/raw/niah_{a.run_id}_{tag}.jsonl"
+    cells: dict = {}
+    with open(raw_path, "w", encoding="utf-8") as raw:
+        for i, r in enumerate(rows):
+            t0 = time.time()
+            try:
+                resp = gen(r["prompt"])
+                ok, status = r["needle"].lower() in resp.lower(), "OK"
+            except Exception as e:  # noqa: BLE001
+                resp, ok, status = f"ERROR: {e}", False, "FAIL"
+            cells.setdefault((r["ctx_tokens"], r["depth"]), []).append(ok)
+            raw.write(json.dumps({"id": r["id"], "ok": ok, "status": status,
+                                  "latency_s": round(time.time() - t0, 2),
+                                  "resp": str(resp)[:300]}, ensure_ascii=False) + "\n")
+            print(f"[{i + 1}/{len(rows)}] {r['id']} -> {'HIT' if ok else 'MISS'} ({status})")
+
+    for (ctx, depth), oks in sorted(cells.items()):
+        log_quality({"run_id": a.run_id, "phase": a.phase, "host": a.host,
+                     "runtime": a.runtime, "model_id": model_id,
+                     "weight_quant": a.weight_quant, "kv_quant": a.kv_quant,
+                     "rope_cfg": a.rope_cfg, "task": "niah", "subset": tag,
+                     "ctx_len": ctx, "extra": f"depth={depth}", "metric": "acc",
+                     "value": round(sum(oks) / len(oks), 4), "n": len(oks),
+                     "raw_path": raw_path, "notes": a.notes})
+    flat = [o for v in cells.values() for o in v]
+    print(f"TOTAL acc = {sum(flat)}/{len(flat)} = {sum(flat) / len(flat):.3f}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### S10 `scripts/bench_hf.py`
+
+```python
+#!/usr/bin/env python3
+"""HF runtime 的 TTFT/TPOT/VRAM 量測(batch=1;研究路線內部對照用,不與 vLLM 同表)。
+方法:隨機 token ids 做 prefill(計 TTFT=prefill+第一步 decode),再逐 token decode 128 步
+量 TPOT;1 次 warmup 後取 n=trials 的 mean/std;VRAM 用 torch.cuda.max_memory_allocated。"""
+import argparse, os, statistics, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import torch
+
+from cachelib import EFF_BITS, fwd, make_cache
+from reslog import log_perf, meta_args
+
+
+def once(model, ids, kv, out_tokens):
+    torch.cuda.reset_peak_memory_stats()
+    cache = make_cache(kv)
+    torch.cuda.synchronize()
+    t0 = time.perf_counter()
+    out = fwd(model, ids, cache)
+    nxt = out.logits[:, -1].argmax(dim=-1, keepdim=True)
+    torch.cuda.synchronize()
+    ttft = (time.perf_counter() - t0) * 1000
+    steps = []
+    for _ in range(out_tokens - 1):
+        torch.cuda.synchronize()
+        t1 = time.perf_counter()
+        out = fwd(model, nxt, cache)
+        nxt = out.logits[:, -1].argmax(dim=-1, keepdim=True)
+        torch.cuda.synchronize()
+        steps.append((time.perf_counter() - t1) * 1000)
+    peak = torch.cuda.max_memory_allocated() / 2**30
+    del cache
+    torch.cuda.empty_cache()
+    return ttft, statistics.mean(steps), peak
+
+
+def main():
+    ap = meta_args(argparse.ArgumentParser())
+    ap.add_argument("--model", required=True)
+    ap.add_argument("--ctx", type=int, nargs="+", default=[16384, 32768])
+    ap.add_argument("--kv", default="fp16")
+    ap.add_argument("--out-tokens", type=int, default=128)
+    ap.add_argument("--trials", type=int, default=3)
+    ap.add_argument("--no-log", action="store_true")
+    a = ap.parse_args()
+
+    from transformers import AutoModelForCausalLM
+    model = AutoModelForCausalLM.from_pretrained(a.model, torch_dtype=torch.bfloat16,
+                                                 device_map="cuda",
+                                                 attn_implementation="sdpa")
+    vocab = model.config.vocab_size
+    g = torch.Generator().manual_seed(42)
+    for ctx in a.ctx:
+        ids = torch.randint(0, vocab - 1000, (1, ctx), generator=g).to("cuda")
+        try:
+            once(model, ids, a.kv, 16)  # warmup(丟棄)
+            runs = [once(model, ids, a.kv, a.out_tokens) for _ in range(a.trials)]
+            ttfts, tpots, peaks = zip(*runs)
+            row = {"ttft_ms_mean": round(statistics.mean(ttfts), 1),
+                   "ttft_ms_std": round(statistics.stdev(ttfts), 1) if a.trials > 1 else 0,
+                   "tpot_ms_mean": round(statistics.mean(tpots), 2),
+                   "tpot_ms_std": round(statistics.stdev(tpots), 2) if a.trials > 1 else 0,
+                   "gen_tps": round(1000 / statistics.mean(tpots), 1),
+                   "vram_peak_gb": round(max(peaks), 2), "status": "OK"}
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            row = {"status": "OOM"}
+        eff = EFF_BITS.get(a.kv)
+        if eff is None and a.kv.startswith("hybrid:"):
+            eff = make_cache(a.kv).cfg.eff_bits()
+        print(f"ctx={ctx} kv={a.kv} -> {row}")
+        if not a.no_log:
+            log_perf({**row, "run_id": a.run_id, "phase": a.phase, "host": a.host,
+                      "runtime": a.runtime, "model_id": a.model,
+                      "weight_quant": a.weight_quant, "kv_quant": a.kv_quant,
+                      "rope_cfg": a.rope_cfg, "ctx_len": ctx, "batch": 1, "in_tok": ctx,
+                      "out_tok": a.out_tokens, "n_trials": a.trials,
+                      "eff_kv_bits": eff, "notes": a.notes})
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### S11 `scripts/ppl_eval.py`
+
+```python
+#!/usr/bin/env python3
+"""PPL 評測(HF runtime)。
+--mode standard:WikiText-2 滑動視窗 PPL(window 4096 / stride 2048;只量 weight 影響,
+                 KV cache 路徑不參與 —— 不能用來評 KV 量化)。
+--mode cached  :PG-19 長文,先把前段 chunked prefill 進 cache,再逐 token 計分最後
+                 score_tail 個 token —— KV cache 路徑全程參與,是量 KV 量化品質的模式。"""
+import argparse, math, os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import torch
+
+from cachelib import fwd, make_cache
+from reslog import log_quality, meta_args
+
+
+@torch.no_grad()
+def ppl_standard(model, tok, window=4096, stride=2048):
+    from datasets import load_dataset
+    text = "\n\n".join(load_dataset("wikitext", "wikitext-2-raw-v1", split="test")["text"])
+    ids = tok(text, return_tensors="pt").input_ids.to(model.device)
+    seq_len = ids.size(1)
+    nll_sum, prev_end = 0.0, 0
+    for begin in range(0, seq_len, stride):
+        end = min(begin + window, seq_len)
+        trg = end - prev_end
+        chunk = ids[:, begin:end]
+        labels = chunk.clone()
+        labels[:, :-trg] = -100
+        out = model(chunk, labels=labels)
+        nll_sum += out.loss.float().item() * trg
+        prev_end = end
+        if end == seq_len:
+            break
+    return math.exp(nll_sum / prev_end)
+
+
+@torch.no_grad()
+def ppl_cached(model, tok, kv, ctx, score_tail=1024, n_docs=3, chunk=2048):
+    from datasets import load_dataset
+    try:
+        docs = load_dataset("deepmind/pg19", split="test", trust_remote_code=True)["text"]
+        src = "pg19"
+    except Exception:
+        docs = ["\n".join(load_dataset("wikitext", "wikitext-103-raw-v1",
+                                       split="test")["text"])]
+        src = "wikitext103"
+    ppls = []
+    for d in docs:
+        ids = tok(d, return_tensors="pt").input_ids
+        if ids.size(1) < ctx:
+            continue
+        ids = ids[:, :ctx].to(model.device)
+        cache = make_cache(kv)
+        S = ctx - score_tail
+        out = None
+        for b in range(0, S, chunk):
+            out = fwd(model, ids[:, b:min(b + chunk, S)], cache)
+        nll = 0.0
+        for t in range(S, ctx):  # out.logits[:, -1] 預測位置 t 的 token
+            logp = torch.log_softmax(out.logits[0, -1].float(), dim=-1)
+            nll += -logp[ids[0, t]].item()
+            if t < ctx - 1:
+                out = fwd(model, ids[:, t:t + 1], cache)
+        ppls.append(math.exp(nll / score_tail))
+        del cache
+        torch.cuda.empty_cache()
+        if len(ppls) >= n_docs:
+            break
+    assert ppls, f"no doc >= {ctx} tokens in {src}"
+    return sum(ppls) / len(ppls), src, len(ppls)
+
+
+def main():
+    ap = meta_args(argparse.ArgumentParser())
+    ap.add_argument("--mode", choices=["standard", "cached"], required=True)
+    ap.add_argument("--model", required=True)
+    ap.add_argument("--kv", default="fp16")
+    ap.add_argument("--ctx", type=int, default=32768)
+    a = ap.parse_args()
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(a.model)
+    model = AutoModelForCausalLM.from_pretrained(a.model, torch_dtype=torch.bfloat16,
+                                                 device_map="cuda",
+                                                 attn_implementation="sdpa")
+    if a.mode == "standard":
+        val, subset, n, ctx = ppl_standard(model, tok), "wikitext2", 1, 4096
+    else:
+        (val, subset, n), ctx = ppl_cached(model, tok, a.kv, a.ctx), a.ctx
+    print(f"PPL[{a.mode}] {a.model} kv={a.kv} ctx={ctx} = {val:.4f}")
+    log_quality({"run_id": a.run_id, "phase": a.phase, "host": a.host,
+                 "runtime": a.runtime, "model_id": a.model,
+                 "weight_quant": a.weight_quant, "kv_quant": a.kv_quant,
+                 "rope_cfg": a.rope_cfg, "task": f"ppl_{a.mode}", "subset": subset,
+                 "ctx_len": ctx, "extra": "", "metric": "ppl", "value": round(val, 4),
+                 "n": n, "raw_path": "", "notes": a.notes})
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### S12 `scripts/ppl_vllm.py`
+
+```python
+#!/usr/bin/env python3
+"""vLLM runtime 的 teacher-forced PPL(bf16/AWQ/GPTQ 用同一條路,免裝 autoawq/gptqmodel)。
+約定:WikiText-2 test 串接後切 4096-token 不重疊 chunk,取前 40 chunk,經 prompt_logprobs
+拿每個 token 的 logprob。此約定與 S11 standard 模式不同 —— 兩者數字不得互比,
+只在各自腳本內部跨配置比較。"""
+import argparse, math, os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from reslog import log_quality, meta_args
+
+
+def main():
+    ap = meta_args(argparse.ArgumentParser())
+    ap.add_argument("--model", required=True)
+    ap.add_argument("--chunk", type=int, default=4096)
+    ap.add_argument("--max-chunks", type=int, default=40)
+    a = ap.parse_args()
+
+    from datasets import load_dataset
+    from transformers import AutoTokenizer
+    from vllm import LLM, SamplingParams
+    tok = AutoTokenizer.from_pretrained(a.model)
+    text = "\n\n".join(load_dataset("wikitext", "wikitext-2-raw-v1", split="test")["text"])
+    ids = tok(text).input_ids
+    chunks = [ids[i:i + a.chunk] for i in range(0, len(ids) - a.chunk, a.chunk)]
+    chunks = chunks[:a.max_chunks]
+
+    llm = LLM(model=a.model, max_model_len=a.chunk + 16, gpu_memory_utilization=0.9)
+    sp = SamplingParams(max_tokens=1, temperature=0, prompt_logprobs=0)
+    try:
+        from vllm import TokensPrompt
+        prompts = [TokensPrompt(prompt_token_ids=c) for c in chunks]
+    except ImportError:
+        prompts = [{"prompt_token_ids": c} for c in chunks]
+    outs = llm.generate(prompts, sp)
+
+    nll, cnt = 0.0, 0
+    for o in outs:
+        for lp in o.prompt_logprobs[1:]:  # 第 0 個位置無 logprob
+            nll -= next(iter(lp.values())).logprob
+            cnt += 1
+    val = math.exp(nll / cnt)
+    print(f"PPL(vllm) {a.model} = {val:.4f} over {cnt} tokens")
+    log_quality({"run_id": a.run_id, "phase": a.phase, "host": a.host, "runtime": a.runtime,
+                 "model_id": a.model, "weight_quant": a.weight_quant,
+                 "kv_quant": a.kv_quant, "rope_cfg": a.rope_cfg, "task": "ppl_vllm",
+                 "subset": "wikitext2", "ctx_len": a.chunk, "extra": "",
+                 "metric": "ppl", "value": round(val, 4), "n": cnt,
+                 "raw_path": "", "notes": a.notes})
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### S13 `scripts/parse_vllm_bench.py`
+
+```python
+#!/usr/bin/env python3
+"""把 `vllm bench serve --save-result` 的 JSON 轉成 perf.csv 一列。
+weights_gb / kv_pool_tokens 無法從 bench JSON 取得 —— 用 --weights-gb / --kv-pool-tokens
+手動帶入(值從 serve log grep,見 Phase 1.3),沒帶就留空。"""
+import argparse, json, os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from reslog import log_perf, meta_args
+
+
+def main():
+    ap = meta_args(argparse.ArgumentParser())
+    ap.add_argument("--json", required=True)
+    ap.add_argument("--model-id", required=True)
+    ap.add_argument("--ctx-len", type=int, required=True)
+    ap.add_argument("--batch", type=int, required=True)  # = max_concurrency
+    ap.add_argument("--eff-kv-bits", default="")
+    ap.add_argument("--weights-gb", default="")
+    ap.add_argument("--kv-pool-tokens", default="")
+    a = ap.parse_args()
+    d = json.load(open(a.json, encoding="utf-8"))
+    g = lambda *keys: next((d[k] for k in keys if k in d), "")
+    log_perf({"run_id": a.run_id, "phase": a.phase, "host": a.host, "runtime": a.runtime,
+              "model_id": a.model_id, "weight_quant": a.weight_quant,
+              "kv_quant": a.kv_quant, "rope_cfg": a.rope_cfg, "ctx_len": a.ctx_len,
+              "batch": a.batch,
+              "in_tok": g("total_input_tokens"), "out_tok": g("total_output_tokens"),
+              "n_trials": g("completed", "num_prompts"),
+              "ttft_ms_mean": g("mean_ttft_ms"), "ttft_ms_std": g("std_ttft_ms"),
+              "tpot_ms_mean": g("mean_tpot_ms"), "tpot_ms_std": g("std_tpot_ms"),
+              "gen_tps": g("output_throughput"),
+              "weights_gb": a.weights_gb, "kv_pool_tokens": a.kv_pool_tokens,
+              "eff_kv_bits": a.eff_kv_bits, "status": "OK",
+              "notes": a.notes + f" src={os.path.basename(a.json)}"})
+    print(f"logged {a.json} -> results/perf.csv")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### S14 `scripts/run_longbench.py`
+
+```python
+#!/usr/bin/env python3
+"""LongBench v1 子集評測(zh 3 + en 3 + code 2)。prompt 模板與 max_gen 讀
+third_party/LongBench 的 config;context 依 token 預算做中段截斷(LongBench 官方做法);
+計分用官方 metrics.py。backend=openai 或 hf(同 run_niah)。"""
+import argparse, importlib.util, json, os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import requests
+
+from reslog import log_quality, meta_args
+
+SUBSETS = {  # subset -> metrics.py 內的函式名
+    "multifieldqa_zh": "qa_f1_zh_score", "dureader": "rouge_zh_score",
+    "passage_retrieval_zh": "retrieval_zh_score",
+    "hotpotqa": "qa_f1_score", "2wikimqa": "qa_f1_score",
+    "passage_retrieval_en": "retrieval_score",
+    "lcc": "code_sim_score", "repobench-p": "code_sim_score",
+}
+
+
+def load_repo(repo):
+    spec = importlib.util.spec_from_file_location("lb_metrics",
+                                                  os.path.join(repo, "metrics.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    p = json.load(open(os.path.join(repo, "config/dataset2prompt.json"), encoding="utf-8"))
+    g = json.load(open(os.path.join(repo, "config/dataset2maxlen.json"), encoding="utf-8"))
+    return m, p, g
+
+
+def main():
+    ap = meta_args(argparse.ArgumentParser())
+    ap.add_argument("--backend", choices=["openai", "hf"], required=True)
+    ap.add_argument("--base-url", default="http://127.0.0.1:8000")
+    ap.add_argument("--hf-model", default="models/Qwen2.5-7B-Instruct-yarn64k")
+    ap.add_argument("--kv", default="fp16")
+    ap.add_argument("--repo", default="third_party/LongBench/LongBench")
+    ap.add_argument("--budget", type=int, default=31500)  # context token 預算
+    ap.add_argument("--limit", type=int, default=50)
+    ap.add_argument("--subsets", nargs="+", default=list(SUBSETS))
+    a = ap.parse_args()
+    metrics, d2p, d2g = load_repo(a.repo)
+    from datasets import load_dataset
+    from transformers import AutoTokenizer
+    tok = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B-Instruct")
+
+    if a.backend == "openai":
+        served = requests.get(f"{a.base_url}/v1/models", timeout=30).json()["data"][0]["id"]
+        model_id = served
+
+        def gen(prompt, max_new):
+            r = requests.post(f"{a.base_url}/v1/chat/completions", timeout=1800, json={
+                "model": served, "temperature": 0, "max_tokens": max_new,
+                "messages": [{"role": "user", "content": prompt}]})
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
+    else:
+        import torch
+        from transformers import AutoModelForCausalLM
+
+        from cachelib import make_cache
+        model_id = a.hf_model
+        model = AutoModelForCausalLM.from_pretrained(
+            a.hf_model, torch_dtype=torch.bfloat16, device_map="cuda",
+            attn_implementation="sdpa")
+        htok = AutoTokenizer.from_pretrained(a.hf_model)
+
+        def gen(prompt, max_new):
+            ids = htok.apply_chat_template([{"role": "user", "content": prompt}],
+                                           add_generation_prompt=True,
+                                           return_tensors="pt").to("cuda")
+            with torch.no_grad():
+                out = model.generate(ids, max_new_tokens=max_new, do_sample=False,
+                                     past_key_values=make_cache(a.kv))
+            return htok.decode(out[0, ids.shape[1]:], skip_special_tokens=True)
+
+    os.makedirs("results/raw", exist_ok=True)
+    for sub in a.subsets:
+        try:
+            ds = load_dataset("THUDM/LongBench", sub, split="test", trust_remote_code=True)
+        except Exception:
+            ds = load_dataset("zai-org/LongBench", sub, split="test", trust_remote_code=True)
+        fn = getattr(metrics, SUBSETS[sub])
+        tpl, max_new = d2p[sub], int(d2g[sub])
+        raw_path = f"results/raw/longbench_{a.run_id}_{sub}.jsonl"
+        scores = []
+        with open(raw_path, "w", encoding="utf-8") as raw:
+            for i, x in enumerate(ds):
+                if i >= a.limit:
+                    break
+                ctx = x["context"]
+                ids = tok(ctx, add_special_tokens=False).input_ids
+                if len(ids) > a.budget:  # 官方式中段截斷
+                    half = a.budget // 2
+                    ctx = tok.decode(ids[:half]) + tok.decode(ids[-half:])
+                prompt = tpl.format(context=ctx, input=x.get("input", ""))
+                try:
+                    pred = gen(prompt, max_new)
+                    s = max((fn(pred, gt, all_classes=x.get("all_classes"))
+                             if "all_classes" in fn.__code__.co_varnames
+                             else fn(pred, gt)) for gt in x["answers"])
+                    status = "OK"
+                except Exception as e:  # noqa: BLE001
+                    pred, s, status = f"ERROR: {e}", 0.0, "FAIL"
+                scores.append(s)
+                raw.write(json.dumps({"i": i, "score": s, "status": status,
+                                      "pred": str(pred)[:300]}, ensure_ascii=False) + "\n")
+        val = round(sum(scores) / max(len(scores), 1), 4)
+        print(f"{sub}: {val} (n={len(scores)})")
+        log_quality({"run_id": a.run_id, "phase": a.phase, "host": a.host,
+                     "runtime": a.runtime, "model_id": model_id,
+                     "weight_quant": a.weight_quant, "kv_quant": a.kv_quant,
+                     "rope_cfg": a.rope_cfg, "task": "longbench", "subset": sub,
+                     "ctx_len": a.budget, "extra": "", "metric": SUBSETS[sub],
+                     "value": val, "n": len(scores), "raw_path": raw_path,
+                     "notes": a.notes})
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### S15 `scripts/aggregate.py`
+
+```python
+#!/usr/bin/env python3
+"""彙整兩張 CSV 成論文用主表(markdown),輸出 reports/summary_tables.md。"""
+import os
+
+import pandas as pd
+
+os.makedirs("reports", exist_ok=True)
+out = ["# Summary Tables(自動生成,勿手改)\n"]
+
+if os.path.exists("results/perf.csv"):
+    p = pd.read_csv("results/perf.csv")
+    out.append("## T1 速度/容量(vLLM runtime)\n")
+    t = p[p.runtime == "vllm"].pivot_table(
+        index=["weight_quant", "kv_quant"], columns=["ctx_len", "batch"],
+        values="gen_tps", aggfunc="max")
+    out.append(t.to_markdown() + "\n")
+    out.append("## T1b HF runtime 參考(不得與 T1 互比)\n")
+    hf = p[p.runtime == "hf"][["run_id", "kv_quant", "ctx_len", "ttft_ms_mean",
+                               "tpot_ms_mean", "vram_peak_gb", "eff_kv_bits", "status"]]
+    out.append(hf.to_markdown(index=False) + "\n")
+
+if os.path.exists("results/quality.csv"):
+    q = pd.read_csv("results/quality.csv")
+    niah = q[q.task == "niah"]
+    if len(niah):
+        out.append("## T2 NIAH 準確率(config × ctx,depth 取平均)\n")
+        t = niah.pivot_table(index=["runtime", "weight_quant", "kv_quant", "subset"],
+                             columns="ctx_len", values="value", aggfunc="mean")
+        out.append(t.round(3).to_markdown() + "\n")
+    ppl = q[q.task.str.startswith("ppl")]
+    if len(ppl):
+        out.append("## T3 PPL\n")
+        out.append(ppl[["run_id", "task", "subset", "ctx_len", "runtime", "weight_quant",
+                        "kv_quant", "value", "n"]].to_markdown(index=False) + "\n")
+    lb = q[q.task == "longbench"]
+    if len(lb):
+        out.append("## T4 LongBench(subset × config)\n")
+        t = lb.pivot_table(index="subset",
+                           columns=["runtime", "weight_quant", "kv_quant"],
+                           values="value", aggfunc="mean")
+        out.append(t.round(3).to_markdown() + "\n")
+
+with open("reports/summary_tables.md", "w", encoding="utf-8") as f:
+    f.write("\n".join(out))
+print("wrote reports/summary_tables.md")
+```
+
+---
+
+## 附錄 T — 樣板
+
+### T1 `STATE.json` 初始內容
+
+```json
+{
+  "updated": "2026-07-07",
+  "current_phase": 0,
+  "phases": {
+    "0": {"status": "TODO", "report": "reports/phase0.md"},
+    "1": {"status": "TODO", "report": "reports/phase1.md"},
+    "2": {"status": "TODO", "report": "reports/phase2.md"},
+    "3": {"status": "TODO", "report": "reports/phase3.md"},
+    "4": {"status": "TODO", "report": "reports/phase4.md"},
+    "5": {"status": "TODO", "report": "reports/phase5.md", "route": "unknown(A|B)"},
+    "6": {"status": "TODO", "report": "reports/phase6.md"},
+    "7": {"status": "TODO", "report": "reports/phase7.md"},
+    "8": {"status": "TODO", "report": "reports/phase8.md", "host": "spark"},
+    "9": {"status": "TODO", "report": "reports/final_report.md"}
+  }
+}
+```
+
+status 取值:`TODO | RUNNING | DONE | SKIP | BLOCKED`。BLOCKED 必須在 ISSUES.md 有對應條目。
+
+### T2 `ISSUES.md` 條目格式
+
+```markdown
+## [YYYY-MM-DD] <phase>-<短標題>
+- 現象:(指令 + 錯誤輸出摘要)
+- 診斷:(根因,標註 [已驗證]/[推測])
+- 處置:(改道到哪條 fallback / SKIP 理由)
+- 影響:(哪些結果列受影響,是否標 stale)
+```
+
+### T3 `reports/phaseN.md` 骨架
+
+```markdown
+# Phase N — <名稱>(<日期>,host=<4090|spark>)
+**結論**:(第一段直接回答本 Phase 的必答題,標註證據等級)
+**驗收證據**:(數字對數字,逐條對 runbook 驗收清單)
+**主要數據**:(表格,值來自 perf.csv / quality.csv,附 run_id)
+**偏離與問題**:(引用 ISSUES.md 條目編號;無則寫「無」)
+```
+
+---
+
+## 最後提醒(給執行 agent)
+
+- 你的產出不是「跑完」,是**可審計的證據鏈**:任何寫進報告的數字,都要能用 `grep <run_id> results/*.csv` 找到來源。
+- 預期會有東西壞掉(研究 code 的常態)。壞掉不是失敗,**沒記錄的壞掉才是失敗**。
+- 本 runbook 的方法命名(Hybrid Polar-KIVI、hybrid_pk 等)是提案,論文定名由使用者決定。
+

@@ -1,0 +1,44 @@
+flowchart TD
+    A([開始]) --> B{目前機器適合嗎？}
+    B -->|硬體 PASS，軟體 TODO| C[P0-lite：建立 repo 骨架並抽出 scripts]
+    B -->|硬體 FAIL| Z[停止並回報 blocker]
+
+    C --> D[P0：安裝 uv，建立 venv-vllm 與 venv-hf]
+    D --> E[跑 probes、凍結套件版本、下載模型]
+    E --> F{P0 驗收通過？}
+    F -->|否| G[寫入 ISSUES.md 並走 fallback]
+    G --> F
+    F -->|是| H[P1：BF16 baseline 與凍結 prompts]
+
+    H --> I[P2：AWQ 與 GPTQ weight-only baseline]
+    I --> J[P3：vLLM 2x2 factorial]
+    J --> K[部署路線答案：weight quant vs FP8 KV]
+
+    H --> L[P4：HF int4/int2 quantized KV baseline]
+    L --> M[P6：Hybrid Polar-KIVI 主實驗與 ablations]
+    M --> N[研究路線答案：hybrid_pk vs int2/int4 KV]
+
+    E --> O{vLLM 支援 TurboQuant？}
+    O -->|是| P[P5A：vLLM TurboQuant benchmark]
+    O -->|否| Q[P5B：LMDeploy fallback 或 SKIP]
+    P --> R[可選部署級 low-bit KV 證據]
+    Q --> R
+
+    E --> S[第三方 repo audit]
+    S --> T[LongBench 作為共用 benchmark]
+    S --> U[KIVI/KVQuant/QuaRot/SpinQuant 附錄 feasibility]
+
+    K --> V[P7：場景分析]
+    N --> V
+    R --> V
+    T --> V
+
+    E --> W{Spark 機器可用？}
+    W -->|是| X[P8：128K-1M 容量邊界]
+    W -->|否| Y[標記 P8 SKIP]
+
+    V --> AA[P9：彙整主表與 final report]
+    X --> AA
+    Y --> AA
+    U --> AA
+    AA --> AB([完成])
