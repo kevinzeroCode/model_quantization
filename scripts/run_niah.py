@@ -33,6 +33,8 @@ def main():
             r = requests.post(f"{a.base_url}/v1/chat/completions", timeout=1800, json={
                 "model": served, "temperature": 0, "max_tokens": a.max_new, "seed": 42,
                 "messages": [{"role": "user", "content": prompt}]})
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:500]}")
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
     else:

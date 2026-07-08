@@ -24,7 +24,8 @@ if os.path.exists("results/quality.csv"):
     niah = q[q.task == "niah"]
     if len(niah):
         out.append("## T2 NIAH 準確率(config × ctx,depth 取平均)\n")
-        t = niah.pivot_table(index=["runtime", "weight_quant", "kv_quant", "subset"],
+        t = niah.pivot_table(index=["run_id", "runtime", "weight_quant",
+                                      "kv_quant", "rope_cfg", "subset"],
                              columns="ctx_len", values="value", aggfunc="mean")
         out.append(t.round(3).to_markdown() + "\n")
     ppl = q[q.task.str.startswith("ppl")]

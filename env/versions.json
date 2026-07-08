@@ -23,5 +23,9 @@
     "datasets": "2.21.0",
     "optimum_quanto": "0.2.7",
     "accelerate": "1.14.0"
+  },
+  "longbench": {
+    "repo": "https://github.com/THUDM/LongBench",
+    "commit": "2e00731f8d0bff23dc4325161044d0ed8af94c1e"
   }
 }

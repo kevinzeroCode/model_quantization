@@ -52,6 +52,8 @@ def main():
             r = requests.post(f"{a.base_url}/v1/chat/completions", timeout=1800, json={
                 "model": served, "temperature": 0, "max_tokens": max_new,
                 "messages": [{"role": "user", "content": prompt}]})
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:500]}")
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
     else:
@@ -105,6 +107,8 @@ def main():
                 scores.append(s)
                 raw.write(json.dumps({"i": i, "score": s, "status": status,
                                       "pred": str(pred)[:300]}, ensure_ascii=False) + "\n")
+                print(f"{sub} [{i + 1}/{a.limit}] score={round(s, 4)} status={status}",
+                      flush=True)
         val = round(sum(scores) / max(len(scores), 1), 4)
         print(f"{sub}: {val} (n={len(scores)})")
         log_quality({"run_id": a.run_id, "phase": a.phase, "host": a.host,

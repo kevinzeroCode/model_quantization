@@ -14,6 +14,8 @@ def main():
     ap.add_argument("--model", required=True)
     ap.add_argument("--chunk", type=int, default=4096)
     ap.add_argument("--max-chunks", type=int, default=40)
+    ap.add_argument("--gpu-memory-utilization", type=float, default=0.65)
+    ap.add_argument("--batch-size", type=int, default=1)
     a = ap.parse_args()
 
     from datasets import load_dataset
@@ -25,14 +27,21 @@ def main():
     chunks = [ids[i:i + a.chunk] for i in range(0, len(ids) - a.chunk, a.chunk)]
     chunks = chunks[:a.max_chunks]
 
-    llm = LLM(model=a.model, max_model_len=a.chunk + 16, gpu_memory_utilization=0.9)
+    llm = LLM(model=a.model, max_model_len=a.chunk + 16,
+              gpu_memory_utilization=a.gpu_memory_utilization,
+              max_num_seqs=a.batch_size,
+              max_num_batched_tokens=a.chunk * a.batch_size)
     sp = SamplingParams(max_tokens=1, temperature=0, prompt_logprobs=0)
     try:
         from vllm import TokensPrompt
         prompts = [TokensPrompt(prompt_token_ids=c) for c in chunks]
     except ImportError:
         prompts = [{"prompt_token_ids": c} for c in chunks]
-    outs = llm.generate(prompts, sp)
+    outs = []
+    for i in range(0, len(prompts), a.batch_size):
+        batch = prompts[i:i + a.batch_size]
+        print(f"ppl chunk {i + 1}-{i + len(batch)}/{len(prompts)}", flush=True)
+        outs.extend(llm.generate(batch, sp, use_tqdm=False))
 
     nll, cnt = 0.0, 0
     for o in outs:

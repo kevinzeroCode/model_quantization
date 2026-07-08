@@ -47,3 +47,15 @@
 - 診斷:[已驗證] PG-19 不是實驗必要條件；runbook 原本允許英文語料 fallback 到 `wikitext-103`，且 NIAH 評測重點是長上下文 retrieval，不依賴特定英文 corpus。
 - 處置:[已驗證] 將 `scripts/gen_prompts.py` 英文預設改為 `wikitext-103`，需要 PG-19 時才用 `USE_PG19=1` 明確啟用；同時改為每完成一個語言就寫回 manifest。
 - 影響:英文 prompt 可快速重現並凍結；Phase 1 繼續從 `en` 與 `code` 缺漏檔案接續，不覆蓋已完成的中文 prompt。
+
+## [2026-07-08] phase1-norope-32k-prompt-overhead
+- 現象:[已驗證] `p1-bf16-norope` 的 `niah_zh` 在 `ctx_tokens=32768` 全部回傳 400，4K/16K 則 30/30 全 HIT。
+- 診斷:[已驗證] 原始 32K server 的 `max_model_len=32768`；frozen prompt 的 32768 token context 加上 chat template、問題與 needle 後，實際 request input 為 32853-32856 tokens，超過 API 上限。
+- 處置:[已驗證] 將 32K norope 結果視為容量/提示長度限制而非 retrieval miss；報告中只用 4K/16K 做有效 YaRN-vs-none 品質對照，32K 標註為 FAIL_CONTEXT_OVERFLOW。
+- 影響:若論文附錄需要原始 rope 在「接近 32K」的公平點，需新增一組不覆蓋既有 frozen prompts 的約 31K 對照 prompt。
+
+## [2026-07-08] phase1-ppl-vllm-prompt-logprobs-oom
+- 現象:[已驗證] `scripts/ppl_vllm.py` 首次以 40 個 4096-token chunks 一次送入 vLLM 時，在 `prompt_logprobs` 的 `log_softmax` 階段 CUDA OOM，需額外配置約 2.32 GiB。
+- 診斷:[已驗證] PPL 腳本不是生成 OOM，而是 prompt logprob 對長序列與大 vocab 計算 log_softmax 時瞬間記憶體過高；同時排多個 chunk 會放大峰值。
+- 處置:[已驗證] 保留 4096-token chunk 定義，但改成 `batch_size=1` 逐 chunk 執行，並將 vLLM `gpu_memory_utilization` 預設先降到 0.75 仍差約 0.16 GiB，最終降到 0.65 以保留 logprob 工作空間。
+- 影響:PPL 仍可作為 vLLM 路線內部跨配置比較；速度較慢但避免 OOM。
