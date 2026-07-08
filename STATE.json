@@ -1,0 +1,48 @@
+{
+  "updated": "2026-07-08",
+  "current_phase": 1,
+  "phases": {
+    "0": {
+      "status": "DONE",
+      "report": "reports/phase0.md"
+    },
+    "1": {
+      "status": "TODO",
+      "report": "reports/phase1.md"
+    },
+    "2": {
+      "status": "TODO",
+      "report": "reports/phase2.md"
+    },
+    "3": {
+      "status": "TODO",
+      "report": "reports/phase3.md"
+    },
+    "4": {
+      "status": "TODO",
+      "report": "reports/phase4.md"
+    },
+    "5": {
+      "status": "TODO",
+      "report": "reports/phase5.md",
+      "route": "B"
+    },
+    "6": {
+      "status": "TODO",
+      "report": "reports/phase6.md"
+    },
+    "7": {
+      "status": "TODO",
+      "report": "reports/phase7.md"
+    },
+    "8": {
+      "status": "TODO",
+      "report": "reports/phase8.md",
+      "host": "spark"
+    },
+    "9": {
+      "status": "TODO",
+      "report": "reports/final_report.md"
+    }
+  }
+}

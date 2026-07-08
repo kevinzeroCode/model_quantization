@@ -1,0 +1,27 @@
+{
+  "updated": "2026-07-08T01:55:00.654299+00:00",
+  "host": "ywu",
+  "os": "Linux ywu 6.17.0-20-generic #20~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Thu Mar 19 01:28:37 UTC 2 x86_64 x86_64 x86_64 GNU/Linux",
+  "gpu": "NVIDIA GeForce RTX 4090, 24564 MiB, 570.211.01",
+  "nvcc": "Build cuda_12.0.r12.0/compiler.32267302_0",
+  "uv": "uv 0.11.27 (x86_64-unknown-linux-gnu)",
+  "vllm_env": {
+    "python": "3.12.3 (main, Jun 19 2026, 12:46:00) [GCC 13.3.0]",
+    "torch": "2.8.0+cu128 12.8 NVIDIA GeForce RTX 4090",
+    "vllm": "0.10.2",
+    "transformers": "4.57.6",
+    "datasets": "2.21.0",
+    "required_env": {
+      "VLLM_USE_FLASHINFER_SAMPLER": "0"
+    },
+    "phase5_route": "B_fallback_no_turboquant"
+  },
+  "hf_env": {
+    "python": "3.12.3 (main, Jun 19 2026, 12:46:00) [GCC 13.3.0]",
+    "torch": "2.8.0+cu128 12.8 NVIDIA GeForce RTX 4090",
+    "transformers": "4.57.6",
+    "datasets": "2.21.0",
+    "optimum_quanto": "0.2.7",
+    "accelerate": "1.14.0"
+  }
+}

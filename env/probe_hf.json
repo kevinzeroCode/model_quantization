@@ -1,0 +1,39 @@
+{
+  "time": "2026-07-08T01:52:56.940966+00:00",
+  "venv": "hf",
+  "python": "3.12.3 (main, Jun 19 2026, 12:46:00) [GCC 13.3.0]",
+  "checks": {
+    "nvidia_smi": {
+      "pass": true,
+      "detail": "NVIDIA GeForce RTX 4090, 24564 MiB, 570.211.01"
+    },
+    "disk_free_300gb": {
+      "pass": true,
+      "detail": "607 GB free"
+    },
+    "torch_cuda": {
+      "pass": true,
+      "detail": "torch 2.8.0+cu128, cuda 12.8, NVIDIA GeForce RTX 4090"
+    },
+    "import_transformers": {
+      "pass": true,
+      "detail": "4.57.6"
+    },
+    "import_datasets": {
+      "pass": true,
+      "detail": "2.21.0"
+    },
+    "import_optimum.quanto": {
+      "pass": true,
+      "detail": "0.2.7"
+    },
+    "import_accelerate": {
+      "pass": true,
+      "detail": "1.14.0"
+    },
+    "quantized_cache_smoke": {
+      "pass": true,
+      "detail": "1+1=2"
+    }
+  }
+}
