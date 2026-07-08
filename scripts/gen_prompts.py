@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """生成並凍結 NIAH 長上下文評測集(Phase 1.1 跑一次,之後不得重生成)。
 輸出 prompts/niah_{zh,en,code}.jsonl 與 MANIFEST.json(sha256 鎖定)。
-語料:zh=LongBench(multifieldqa_zh/dureader 的 context)、en=PG-19(fallback wikitext-103)、
+語料:zh=LongBench(multifieldqa_zh/dureader 的 context)、en=wikitext-103(可用 USE_PG19=1 改 PG-19)、
 code=codeparrot-clean-valid。全部以 Qwen tokenizer 控長。"""
 import argparse, hashlib, json, os, random
 
@@ -34,10 +34,10 @@ def load_corpus(lang, n_docs=300):
                                   trust_remote_code=True)
             docs += [x["context"] for x in ds]
     elif lang == "en":
-        try:
+        if os.environ.get("USE_PG19") == "1":
             ds = load_dataset("deepmind/pg19", split="test", trust_remote_code=True)
             docs = [x["text"] for x in ds]
-        except Exception:
+        else:
             joined = "\n".join(load_dataset("wikitext", "wikitext-103-raw-v1",
                                             split="test")["text"])
             docs = [joined[i:i + 200_000] for i in range(0, len(joined), 200_000)]
@@ -105,6 +105,8 @@ def main():
         with open(path, "rb") as f:
             manifest[path] = {"n": len(rows),
                               "sha256": hashlib.sha256(f.read()).hexdigest()}
+        with open(mpath, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
         print(f"{path}: {len(rows)} prompts")
     with open(mpath, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)

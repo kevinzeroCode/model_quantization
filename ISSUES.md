@@ -42,3 +42,8 @@
 - 處置:[已驗證] 設定 `VLLM_USE_FLASHINFER_SAMPLER=0`，讓 vLLM 使用 PyTorch-native top-k/top-p sampler；0.5B OpenAI endpoint smoke 通過。
 - 影響:後續所有 vLLM serve/bench 命令需在環境中設定 `VLLM_USE_FLASHINFER_SAMPLER=0`，速度可能略低於 flashinfer sampler，但避免啟動失敗。
 
+## [2026-07-08] phase1-pg19-download-timebox
+- 現象:[已驗證] Phase 1 prompt generation 在 `deepmind/pg19` test split 下載大量小檔時超過可接受時間，中斷後僅完成 `prompts/niah_zh.jsonl`，且該檔尚未寫入 manifest。
+- 診斷:[已驗證] PG-19 不是實驗必要條件；runbook 原本允許英文語料 fallback 到 `wikitext-103`，且 NIAH 評測重點是長上下文 retrieval，不依賴特定英文 corpus。
+- 處置:[已驗證] 將 `scripts/gen_prompts.py` 英文預設改為 `wikitext-103`，需要 PG-19 時才用 `USE_PG19=1` 明確啟用；同時改為每完成一個語言就寫回 manifest。
+- 影響:英文 prompt 可快速重現並凍結；Phase 1 繼續從 `en` 與 `code` 缺漏檔案接續，不覆蓋已完成的中文 prompt。

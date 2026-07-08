@@ -1,0 +1,14 @@
+{
+  "prompts/niah_code.jsonl": {
+    "n": 60,
+    "sha256": "68c6031405dcf5dae33658a3088047a1ec994d413802c73ac1d47294684dd4de"
+  },
+  "prompts/niah_en.jsonl": {
+    "n": 60,
+    "sha256": "eb86377becb0e41eda842c0193d07da445107b2a7634f4c319f5537dda2a6f3d"
+  },
+  "prompts/niah_zh.jsonl": {
+    "n": 60,
+    "sha256": "f6430c5533dd5b9fa52c3c4e80b370e3cb4f7a00148311c612a0ac182a19f0e4"
+  }
+}
