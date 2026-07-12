@@ -59,3 +59,9 @@
 - 診斷:[已驗證] PPL 腳本不是生成 OOM，而是 prompt logprob 對長序列與大 vocab 計算 log_softmax 時瞬間記憶體過高；同時排多個 chunk 會放大峰值。
 - 處置:[已驗證] 保留 4096-token chunk 定義，但改成 `batch_size=1` 逐 chunk 執行，並將 vLLM `gpu_memory_utilization` 預設先降到 0.75 仍差約 0.16 GiB，最終降到 0.65 以保留 logprob 工作空間。
 - 影響:PPL 仍可作為 vLLM 路線內部跨配置比較；速度較慢但避免 OOM。
+
+## [2026-07-08] phase3-vllm-fp8-kv-v0-quality-collapse
+- 現象:[已驗證] `--kv-cache-dtype fp8_e4m3 --calculate-kv-scales` 可啟動，但 vLLM 0.10.2 會提示 KV quant 不支援 V1 engine 並 fallback 到 V0；FP8 KV 也改用 XFormers attention。`p3-bf16-fp8` 與 `p3-awq-fp8` 在 zh NIAH 32K/63K 全部 miss，LongBench retrieval/QA 大幅下降，速度 benchmark 出現明顯早 EOS。
+- 診斷:[已驗證] FP8 KV 的記憶體容量收益成立，但目前 runtime 路徑不是 Phase 1/2 的 V1/FlashAttention hot path；動態 KV scale 沒有避免長上下文 retrieval collapse。
+- 處置:[已驗證] Phase 3 報告將 AWQ W4 + fp16 KV 視為目前 62K quality x capacity 最佳配置；FP8 KV 保留為診斷路線，不作為主推實驗設定。
+- 影響:後續 Phase 4/5/6 若要比較低 bit KV，需明確區分「容量提升」與「可用長上下文品質」。若升級 vLLM 或改 KV scaling 方法，需重跑同一組 NIAH/LongBench 驗證。
