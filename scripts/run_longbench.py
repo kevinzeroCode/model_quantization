@@ -38,6 +38,7 @@ def main():
     ap.add_argument("--budget", type=int, default=31500)  # context token 預算
     ap.add_argument("--limit", type=int, default=50)
     ap.add_argument("--subsets", nargs="+", default=list(SUBSETS))
+    ap.add_argument("--prefill-chunk", type=int, default=2048)
     a = ap.parse_args()
     metrics, d2p, d2g = load_repo(a.repo)
     from datasets import load_dataset
@@ -60,7 +61,7 @@ def main():
         import torch
         from transformers import AutoModelForCausalLM
 
-        from cachelib import make_cache
+        from cachelib import fwd, make_cache
         model_id = a.hf_model
         model = AutoModelForCausalLM.from_pretrained(
             a.hf_model, torch_dtype=torch.bfloat16, device_map="cuda",
@@ -71,10 +72,23 @@ def main():
             ids = htok.apply_chat_template([{"role": "user", "content": prompt}],
                                            add_generation_prompt=True,
                                            return_tensors="pt").to("cuda")
+            generated = []
+            cache = make_cache(a.kv, model.config)
             with torch.no_grad():
-                out = model.generate(ids, max_new_tokens=max_new, do_sample=False,
-                                     past_key_values=make_cache(a.kv))
-            return htok.decode(out[0, ids.shape[1]:], skip_special_tokens=True)
+                out = None
+                for b in range(0, ids.shape[1], a.prefill_chunk):
+                    out = fwd(model, ids[:, b:min(b + a.prefill_chunk, ids.shape[1])], cache)
+                nxt = out.logits[:, -1].argmax(dim=-1, keepdim=True)
+                for _ in range(max_new):
+                    token_id = int(nxt[0, 0])
+                    if htok.eos_token_id is not None and token_id == htok.eos_token_id:
+                        break
+                    generated.append(token_id)
+                    out = fwd(model, nxt, cache)
+                    nxt = out.logits[:, -1].argmax(dim=-1, keepdim=True)
+            del cache
+            torch.cuda.empty_cache()
+            return htok.decode(generated, skip_special_tokens=True)
 
     os.makedirs("results/raw", exist_ok=True)
     for sub in a.subsets:

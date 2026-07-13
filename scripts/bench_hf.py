@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """HF runtime 的 TTFT/TPOT/VRAM 量測(batch=1;研究路線內部對照用,不與 vLLM 同表)。
-方法:隨機 token ids 做 prefill(計 TTFT=prefill+第一步 decode),再逐 token decode 128 步
-量 TPOT;1 次 warmup 後取 n=trials 的 mean/std;VRAM 用 torch.cuda.max_memory_allocated。"""
+方法:隨機 token ids 做 chunked prefill(計 TTFT=prefill+第一步 decode),再逐 token decode
+128 步量 TPOT;1 次 warmup 後取 n=trials 的 mean/std;VRAM 用 torch.cuda.max_memory_allocated。"""
 import argparse, os, statistics, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -11,12 +11,15 @@ from cachelib import EFF_BITS, fwd, make_cache
 from reslog import log_perf, meta_args
 
 
-def once(model, ids, kv, out_tokens):
+@torch.no_grad()
+def once(model, ids, kv, out_tokens, prefill_chunk):
     torch.cuda.reset_peak_memory_stats()
-    cache = make_cache(kv)
+    cache = make_cache(kv, model.config)
     torch.cuda.synchronize()
     t0 = time.perf_counter()
-    out = fwd(model, ids, cache)
+    out = None
+    for b in range(0, ids.shape[1], prefill_chunk):
+        out = fwd(model, ids[:, b:min(b + prefill_chunk, ids.shape[1])], cache)
     nxt = out.logits[:, -1].argmax(dim=-1, keepdim=True)
     torch.cuda.synchronize()
     ttft = (time.perf_counter() - t0) * 1000
@@ -41,6 +44,7 @@ def main():
     ap.add_argument("--kv", default="fp16")
     ap.add_argument("--out-tokens", type=int, default=128)
     ap.add_argument("--trials", type=int, default=3)
+    ap.add_argument("--prefill-chunk", type=int, default=2048)
     ap.add_argument("--no-log", action="store_true")
     a = ap.parse_args()
 
@@ -53,8 +57,9 @@ def main():
     for ctx in a.ctx:
         ids = torch.randint(0, vocab - 1000, (1, ctx), generator=g).to("cuda")
         try:
-            once(model, ids, a.kv, 16)  # warmup(丟棄)
-            runs = [once(model, ids, a.kv, a.out_tokens) for _ in range(a.trials)]
+            once(model, ids, a.kv, 16, a.prefill_chunk)  # warmup(丟棄)
+            runs = [once(model, ids, a.kv, a.out_tokens, a.prefill_chunk)
+                    for _ in range(a.trials)]
             ttfts, tpots, peaks = zip(*runs)
             row = {"ttft_ms_mean": round(statistics.mean(ttfts), 1),
                    "ttft_ms_std": round(statistics.stdev(ttfts), 1) if a.trials > 1 else 0,

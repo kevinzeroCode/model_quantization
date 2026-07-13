@@ -37,10 +37,15 @@ def ppl_standard(model, tok, window=4096, stride=2048):
 @torch.no_grad()
 def ppl_cached(model, tok, kv, ctx, score_tail=1024, n_docs=3, chunk=2048):
     from datasets import load_dataset
-    try:
-        docs = load_dataset("deepmind/pg19", split="test", trust_remote_code=True)["text"]
-        src = "pg19"
-    except Exception:
+    if os.environ.get("USE_PG19") == "1":
+        try:
+            docs = load_dataset("deepmind/pg19", split="test", trust_remote_code=True)["text"]
+            src = "pg19"
+        except Exception:
+            docs = ["\n".join(load_dataset("wikitext", "wikitext-103-raw-v1",
+                                           split="test")["text"])]
+            src = "wikitext103"
+    else:
         docs = ["\n".join(load_dataset("wikitext", "wikitext-103-raw-v1",
                                        split="test")["text"])]
         src = "wikitext103"
@@ -50,7 +55,7 @@ def ppl_cached(model, tok, kv, ctx, score_tail=1024, n_docs=3, chunk=2048):
         if ids.size(1) < ctx:
             continue
         ids = ids[:, :ctx].to(model.device)
-        cache = make_cache(kv)
+        cache = make_cache(kv, model.config)
         S = ctx - score_tail
         out = None
         for b in range(0, S, chunk):
@@ -76,6 +81,7 @@ def main():
     ap.add_argument("--model", required=True)
     ap.add_argument("--kv", default="fp16")
     ap.add_argument("--ctx", type=int, default=32768)
+    ap.add_argument("--prefill-chunk", type=int, default=2048)
     a = ap.parse_args()
     from transformers import AutoModelForCausalLM, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(a.model)
@@ -85,7 +91,7 @@ def main():
     if a.mode == "standard":
         val, subset, n, ctx = ppl_standard(model, tok), "wikitext2", 1, 4096
     else:
-        (val, subset, n), ctx = ppl_cached(model, tok, a.kv, a.ctx), a.ctx
+        (val, subset, n), ctx = ppl_cached(model, tok, a.kv, a.ctx, chunk=a.prefill_chunk), a.ctx
     print(f"PPL[{a.mode}] {a.model} kv={a.kv} ctx={ctx} = {val:.4f}")
     log_quality({"run_id": a.run_id, "phase": a.phase, "host": a.host,
                  "runtime": a.runtime, "model_id": a.model,

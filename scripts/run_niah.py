@@ -19,6 +19,7 @@ def main():
     ap.add_argument("--kv", default="fp16")  # hf 專用:fp16|quanto4|quanto2|hybrid:<cfg>
     ap.add_argument("--max-ctx", type=int, default=10**9)
     ap.add_argument("--max-new", type=int, default=64)
+    ap.add_argument("--prefill-chunk", type=int, default=2048)
     a = ap.parse_args()
 
     rows = [json.loads(l) for l in open(a.prompts, encoding="utf-8")]
@@ -41,7 +42,7 @@ def main():
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        from cachelib import make_cache
+        from cachelib import fwd, make_cache
         model_id = a.hf_model
         tok = AutoTokenizer.from_pretrained(a.hf_model)
         model = AutoModelForCausalLM.from_pretrained(
@@ -52,10 +53,23 @@ def main():
             ids = tok.apply_chat_template([{"role": "user", "content": prompt}],
                                           add_generation_prompt=True,
                                           return_tensors="pt").to("cuda")
+            generated = []
+            cache = make_cache(a.kv, model.config)
             with torch.no_grad():
-                out = model.generate(ids, max_new_tokens=a.max_new, do_sample=False,
-                                     past_key_values=make_cache(a.kv))
-            return tok.decode(out[0, ids.shape[1]:], skip_special_tokens=True)
+                out = None
+                for b in range(0, ids.shape[1], a.prefill_chunk):
+                    out = fwd(model, ids[:, b:min(b + a.prefill_chunk, ids.shape[1])], cache)
+                nxt = out.logits[:, -1].argmax(dim=-1, keepdim=True)
+                for _ in range(a.max_new):
+                    token_id = int(nxt[0, 0])
+                    if tok.eos_token_id is not None and token_id == tok.eos_token_id:
+                        break
+                    generated.append(token_id)
+                    out = fwd(model, nxt, cache)
+                    nxt = out.logits[:, -1].argmax(dim=-1, keepdim=True)
+            del cache
+            torch.cuda.empty_cache()
+            return tok.decode(generated, skip_special_tokens=True)
 
     os.makedirs("results/raw", exist_ok=True)
     tag = os.path.basename(a.prompts).replace(".jsonl", "")

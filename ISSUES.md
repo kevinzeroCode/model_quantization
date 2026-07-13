@@ -65,3 +65,21 @@
 - 診斷:[已驗證] FP8 KV 的記憶體容量收益成立，但目前 runtime 路徑不是 Phase 1/2 的 V1/FlashAttention hot path；動態 KV scale 沒有避免長上下文 retrieval collapse。
 - 處置:[已驗證] Phase 3 報告將 AWQ W4 + fp16 KV 視為目前 62K quality x capacity 最佳配置；FP8 KV 保留為診斷路線，不作為主推實驗設定。
 - 影響:後續 Phase 4/5/6 若要比較低 bit KV，需明確區分「容量提升」與「可用長上下文品質」。若升級 vLLM 或改 KV scaling 方法，需重跑同一組 NIAH/LongBench 驗證。
+
+## [2026-07-08] phase4-hf-cache-api-and-no-grad
+- 現象:[已驗證] Phase 4 初次 smoke 時，`cachelib.py` 從 transformers top-level import `QuantizedCacheConfig` / `QuantoQuantizedCache` 失敗；修正 import 後，`bench_hf.py` 又因未使用 `torch.no_grad()`，0.5B 4K/8K prefill 產生不合理高 VRAM 與 OOM。
+- 診斷:[已驗證] transformers 4.57.6 的 quantized cache API 位於 `transformers.cache_utils`，且 `QuantizedCache` 需要 `model.config`。HF bench retained autograd graphs across chunked prefill/decode，導致記憶體膨脹。
+- 處置:[已驗證] `make_cache(kv, model_config)` 改用 `QuantizedCache(backend, model_config, ...)`；HF generation/LongBench/NIAH/PPL 傳入 `model.config`；`bench_hf.once()` 加上 `torch.no_grad()`；長上下文 HF generation 改成 chunked prefill。
+- 影響:Phase 4 HF 32K smoke 與正式 bench 可在 RTX 4090 24GB 上完成。
+
+## [2026-07-08] phase4-transformers-quantized-cache-collapse
+- 現象:[已驗證] `quanto4` 7B zh NIAH diagnostic 在 4K/16K/32K 全部 miss 且 raw output 呈現亂碼；依 runbook 安裝 HQQ fallback 後，`hqq4` 與 `hqq2` zh/en NIAH 也都是 0/90，cached-PPL 從 fp16 的 5.4877/8.0138 暴增到 hqq4 的 8485.7470/26420.3876 與 hqq2 的 39672.8659/188153.7391。
+- 診斷:[已驗證] 失敗不是 32K 才出現，而是 4K depth=0.1 起即崩潰；axis 組合診斷未救回第一個 4K NIAH prompt。Transformers QuantizedCache 在 Qwen2.5-7B + residual_length=128 的協定下不可作為可用長上下文 retrieval baseline。
+- 處置:[已驗證] Phase 4 正式 baseline 改記 `int4_hqq` / `int2_hqq`，保留 `p4-quanto4` zh diagnostic raw；Phase 6 報告必須把「避免 4K 即崩」列為最低門檻。
+- 影響:後續不能把 transformers low-bit QuantizedCache 的 eff bits 直接解讀為可用容量；它目前只提供負結果與 hybrid 改良空間。
+
+## [2026-07-08] phase4-pg19-download-timebox
+- 現象:[已驗證] `ppl_eval.py --mode cached` 預設嘗試載入 `deepmind/pg19` test split，下載大量小檔並超過合理 Phase 4 執行時間。
+- 診斷:[已驗證] Phase 4 需要的是同一 runtime 內部的 KV cache 品質對照，不依賴 PG-19；Phase 1 已有相同資料集下載時間問題。
+- 處置:[已驗證] `ppl_eval.py` 改成預設使用 `wikitext-103`，只有設定 `USE_PG19=1` 時才嘗試 PG-19。
+- 影響:Phase 4 cached-PPL subset 記為 `wikitext103`，不可和未來 PG-19 PPL 直接混表比較。

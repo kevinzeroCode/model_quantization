@@ -44,3 +44,9 @@ p3-awq-fp8,3,4090,vllm,models/Qwen2.5-7B-Instruct-AWQ-yarn64k,awq_w4,fp8_e4m3,ya
 p3-awq-fp8,3,4090,vllm,models/Qwen2.5-7B-Instruct-AWQ-yarn64k,awq_w4,fp8_e4m3,yarn4,32768,4,393216,790,12,14072.732163903614,4073.9739033394617,184.85339315952498,75.0752011542206,11.803444834111994,5.2271,558320,,8,OK,vllm_v0_xformers calculate_kv_scales src=p3_awq_fp8_32768_c4.json
 p3-awq-fp8,3,4090,vllm,models/Qwen2.5-7B-Instruct-AWQ-yarn64k,awq_w4,fp8_e4m3,yarn4,63488,1,380928,18,6,13929.060592316091,7.409262166136724,10.171149267504614,0.1975570014887581,0.21506232761559552,5.2271,558320,,8,OK,vllm_v0_xformers calculate_kv_scales src=p3_awq_fp8_63488_c1.json
 p3-awq-fp8,3,4090,vllm,models/Qwen2.5-7B-Instruct-AWQ-yarn64k,awq_w4,fp8_e4m3,yarn4,63488,4,761856,438,12,50045.103941035144,13814.442353931296,203.2360400884685,71.79339075199435,2.505884057406365,5.2271,558320,,8,OK,vllm_v0_xformers calculate_kv_scales src=p3_awq_fp8_63488_c4.json
+p4-fp16,4,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,fp16,yarn4,16384,1,16384,128,3,2582.4,0.8,19.73,0.01,50.7,,,15.33,16,OK,
+p4-fp16,4,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,fp16,yarn4,32768,1,32768,128,3,7070.4,9.8,22.65,0.01,44.1,,,16.45,16,OK,
+p4-hqq4,4,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int4_hqq,yarn4,16384,1,16384,128,3,7338.5,23.7,27.22,0.01,36.7,,,14.75,4.5,OK,backend=hqq
+p4-hqq4,4,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int4_hqq,yarn4,32768,1,32768,128,3,27081.9,66.8,41.75,0.15,24.0,,,15.27,4.5,OK,backend=hqq
+p4-hqq2,4,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_hqq,yarn4,16384,1,16384,128,3,8092.2,10.4,28.2,0.01,35.5,,,14.64,2.5,OK,backend=hqq
+p4-hqq2,4,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_hqq,yarn4,32768,1,32768,128,3,31043.4,24.4,43.73,0.05,22.9,,,15.05,2.5,OK,backend=hqq

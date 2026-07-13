@@ -12,8 +12,14 @@
 
 ## T1b HF runtime 參考(不得與 T1 互比)
 
-| run_id   | kv_quant   | ctx_len   | ttft_ms_mean   | tpot_ms_mean   | vram_peak_gb   | eff_kv_bits   | status   |
-|----------|------------|-----------|----------------|----------------|----------------|---------------|----------|
+| run_id   | kv_quant   |   ctx_len |   ttft_ms_mean |   tpot_ms_mean |   vram_peak_gb |   eff_kv_bits | status   |
+|:---------|:-----------|----------:|---------------:|---------------:|---------------:|--------------:|:---------|
+| p4-fp16  | fp16       |     16384 |         2582.4 |          19.73 |          15.33 |          16   | OK       |
+| p4-fp16  | fp16       |     32768 |         7070.4 |          22.65 |          16.45 |          16   | OK       |
+| p4-hqq4  | int4_hqq   |     16384 |         7338.5 |          27.22 |          14.75 |           4.5 | OK       |
+| p4-hqq4  | int4_hqq   |     32768 |        27081.9 |          41.75 |          15.27 |           4.5 | OK       |
+| p4-hqq2  | int2_hqq   |     16384 |         8092.2 |          28.2  |          14.64 |           2.5 | OK       |
+| p4-hqq2  | int2_hqq   |     32768 |        31043.4 |          43.73 |          15.05 |           2.5 | OK       |
 
 ## T2 NIAH 準確率(config × ctx,depth 取平均)
 
@@ -29,14 +35,27 @@
 | ('p2-gptq', 'vllm', 'gptq_w4', 'fp16', 'yarn4', 'niah_zh')       |    1   |   1     |       1 |       1 |
 | ('p3-awq-fp8', 'vllm', 'awq_w4', 'fp8_e4m3', 'yarn4', 'niah_zh') |    0.6 |   0     |       0 |       0 |
 | ('p3-bf16-fp8', 'vllm', 'bf16', 'fp8_e4m3', 'yarn4', 'niah_zh')  |    0   |   0.133 |       0 |       0 |
+| ('p4-fp16', 'hf', 'bf16', 'fp16', 'yarn4', 'niah_en')            |    1   |   1     |       1 |     nan |
+| ('p4-fp16', 'hf', 'bf16', 'fp16', 'yarn4', 'niah_zh')            |    1   |   1     |       1 |     nan |
+| ('p4-hqq2', 'hf', 'bf16', 'int2_hqq', 'yarn4', 'niah_en')        |    0   |   0     |       0 |     nan |
+| ('p4-hqq2', 'hf', 'bf16', 'int2_hqq', 'yarn4', 'niah_zh')        |    0   |   0     |       0 |     nan |
+| ('p4-hqq4', 'hf', 'bf16', 'int4_hqq', 'yarn4', 'niah_en')        |    0   |   0     |       0 |     nan |
+| ('p4-hqq4', 'hf', 'bf16', 'int4_hqq', 'yarn4', 'niah_zh')        |    0   |   0     |       0 |     nan |
+| ('p4-quanto4', 'hf', 'bf16', 'int4_quanto', 'yarn4', 'niah_zh')  |    0   |   0     |       0 |     nan |
 
 ## T3 PPL
 
-| run_id   | task     | subset    |   ctx_len | runtime   | weight_quant   | kv_quant   |   value |      n |
-|:---------|:---------|:----------|----------:|:----------|:---------------|:-----------|--------:|-------:|
-| p1-bf16  | ppl_vllm | wikitext2 |      4096 | vllm      | bf16           | fp16       |  6.9572 | 163800 |
-| p2-awq   | ppl_vllm | wikitext2 |      4096 | vllm      | awq_w4         | fp16       |  7.3326 | 163800 |
-| p2-gptq  | ppl_vllm | wikitext2 |      4096 | vllm      | gptq_w4        | fp16       |  7.2823 | 163800 |
+| run_id   | task       | subset      |   ctx_len | runtime   | weight_quant   | kv_quant   |       value |      n |
+|:---------|:-----------|:------------|----------:|:----------|:---------------|:-----------|------------:|-------:|
+| p1-bf16  | ppl_vllm   | wikitext2   |      4096 | vllm      | bf16           | fp16       |      6.9572 | 163800 |
+| p2-awq   | ppl_vllm   | wikitext2   |      4096 | vllm      | awq_w4         | fp16       |      7.3326 | 163800 |
+| p2-gptq  | ppl_vllm   | wikitext2   |      4096 | vllm      | gptq_w4        | fp16       |      7.2823 | 163800 |
+| p4-fp16  | ppl_cached | wikitext103 |     16384 | hf        | bf16           | fp16       |      5.4877 |      1 |
+| p4-fp16  | ppl_cached | wikitext103 |     32768 | hf        | bf16           | fp16       |      8.0138 |      1 |
+| p4-hqq4  | ppl_cached | wikitext103 |     16384 | hf        | bf16           | int4_hqq   |   8485.75   |      1 |
+| p4-hqq4  | ppl_cached | wikitext103 |     32768 | hf        | bf16           | int4_hqq   |  26420.4    |      1 |
+| p4-hqq2  | ppl_cached | wikitext103 |     16384 | hf        | bf16           | int2_hqq   |  39672.9    |      1 |
+| p4-hqq2  | ppl_cached | wikitext103 |     32768 | hf        | bf16           | int2_hqq   | 188154      |      1 |
 
 ## T4 LongBench(subset × config)
 
