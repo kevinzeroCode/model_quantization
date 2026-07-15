@@ -107,3 +107,15 @@
 - 診斷:[已驗證] LMDeploy itself remained healthy via direct `/v1/chat/completions`; the incompatibility was in the benchmark client's request schema for this server.
 - 處置:[已驗證] Added `scripts/bench_openai_serve.py`, a small OpenAI-compatible streaming client that writes the existing `results/perf.csv` schema.
 - 影響:LMDeploy serving rows are collected with the local helper and should only be compared with LMDeploy rows.
+
+## [2026-07-14] phase6-hybrid-main-retrieval-collapse
+- 現象:[已驗證] `p6-main`, `p6-theta3`, and `p6-norot` all scored 0/90 on zh/en NIAH up to 32K, even though cached-PPL was far better than Phase 4 HQQ low-bit baselines.
+- 診斷:[已驗證] The failure appears in the first 4K cells, so it is not a long-context capacity boundary. Disabling rotation improves PPL but does not recover retrieval, which rules out rotation as the sole retrieval failure source.
+- 處置:[已驗證] Phase 6 report marks main as a partial success only for PPL, not as a retrieval-success configuration.
+- 影響:Future claims must separate language-modeling PPL gains from retrieval reliability; PPL alone is not sufficient for long-context KV quality.
+
+## [2026-07-14] phase6-skip01-restores-hybrid-quality
+- 現象:[已驗證] `p6-skip01`, which keeps layers 0 and 1 in fp16, recovered zh NIAH 45/45, en NIAH 44/45, and cached-PPL 5.9968/8.7105 at 16K/32K.
+- 診斷:[已驗證] The contrast against `p6-main` 0/90 localizes the major retrieval failure to early-layer KV quantization sensitivity. The weighted effective KV budget is about 4.22 bits on Qwen2.5-7B's 28 layers.
+- 處置:[已驗證] Treat `skip01` as the successful mixed-precision ablation and carry it into Phase 7 scenario evaluation.
+- 影響:Next iterations should formalize layer-wise allocation or early-layer fallback instead of using a uniform hybrid policy.

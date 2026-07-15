@@ -1,0 +1,12 @@
+{
+  "bits_r": 4,
+  "bits_theta": 4,
+  "bits_v": 2,
+  "residual": 128,
+  "skip_layers": [
+    0,
+    1
+  ],
+  "use_rotation": true,
+  "v_group": 64
+}

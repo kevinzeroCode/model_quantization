@@ -1,0 +1,8 @@
+{
+  "bits_r": 4,
+  "bits_theta": 4,
+  "bits_v": 2,
+  "residual": 128,
+  "use_rotation": false,
+  "v_group": 64
+}

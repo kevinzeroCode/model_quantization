@@ -57,20 +57,36 @@
 | ('p4-quanto4', 'hf', 'bf16', 'int4_quanto', 'yarn4', 'niah_zh')     |  0     |   0     |   0     |     nan |
 | ('p5-lmd-int4', 'lmdeploy', 'bf16', 'int4_lmd', 'yarn4', 'niah_zh') |  0     |   0     |   0     |       0 |
 | ('p5-lmd-int8', 'lmdeploy', 'bf16', 'int8_lmd', 'yarn4', 'niah_zh') |  0.467 |   0.067 |   0.067 |       0 |
+| ('p6-main', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')          |  0     |   0     |   0     |     nan |
+| ('p6-main', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')          |  0     |   0     |   0     |     nan |
+| ('p6-norot', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')         |  0     |   0     |   0     |     nan |
+| ('p6-norot', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')         |  0     |   0     |   0     |     nan |
+| ('p6-skip01', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')        |  1     |   0.933 |   1     |     nan |
+| ('p6-skip01', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')        |  1     |   1     |   1     |     nan |
+| ('p6-theta3', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')        |  0     |   0     |   0     |     nan |
+| ('p6-theta3', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')        |  0     |   0     |   0     |     nan |
 
 ## T3 PPL
 
-| run_id   | task       | subset      |   ctx_len | runtime   | weight_quant   | kv_quant   |       value |      n |
-|:---------|:-----------|:------------|----------:|:----------|:---------------|:-----------|------------:|-------:|
-| p1-bf16  | ppl_vllm   | wikitext2   |      4096 | vllm      | bf16           | fp16       |      6.9572 | 163800 |
-| p2-awq   | ppl_vllm   | wikitext2   |      4096 | vllm      | awq_w4         | fp16       |      7.3326 | 163800 |
-| p2-gptq  | ppl_vllm   | wikitext2   |      4096 | vllm      | gptq_w4        | fp16       |      7.2823 | 163800 |
-| p4-fp16  | ppl_cached | wikitext103 |     16384 | hf        | bf16           | fp16       |      5.4877 |      1 |
-| p4-fp16  | ppl_cached | wikitext103 |     32768 | hf        | bf16           | fp16       |      8.0138 |      1 |
-| p4-hqq4  | ppl_cached | wikitext103 |     16384 | hf        | bf16           | int4_hqq   |   8485.75   |      1 |
-| p4-hqq4  | ppl_cached | wikitext103 |     32768 | hf        | bf16           | int4_hqq   |  26420.4    |      1 |
-| p4-hqq2  | ppl_cached | wikitext103 |     16384 | hf        | bf16           | int2_hqq   |  39672.9    |      1 |
-| p4-hqq2  | ppl_cached | wikitext103 |     32768 | hf        | bf16           | int2_hqq   | 188154      |      1 |
+| run_id    | task       | subset      |   ctx_len | runtime   | weight_quant   | kv_quant   |       value |      n |
+|:----------|:-----------|:------------|----------:|:----------|:---------------|:-----------|------------:|-------:|
+| p1-bf16   | ppl_vllm   | wikitext2   |      4096 | vllm      | bf16           | fp16       |      6.9572 | 163800 |
+| p2-awq    | ppl_vllm   | wikitext2   |      4096 | vllm      | awq_w4         | fp16       |      7.3326 | 163800 |
+| p2-gptq   | ppl_vllm   | wikitext2   |      4096 | vllm      | gptq_w4        | fp16       |      7.2823 | 163800 |
+| p4-fp16   | ppl_cached | wikitext103 |     16384 | hf        | bf16           | fp16       |      5.4877 |      1 |
+| p4-fp16   | ppl_cached | wikitext103 |     32768 | hf        | bf16           | fp16       |      8.0138 |      1 |
+| p4-hqq4   | ppl_cached | wikitext103 |     16384 | hf        | bf16           | int4_hqq   |   8485.75   |      1 |
+| p4-hqq4   | ppl_cached | wikitext103 |     32768 | hf        | bf16           | int4_hqq   |  26420.4    |      1 |
+| p4-hqq2   | ppl_cached | wikitext103 |     16384 | hf        | bf16           | int2_hqq   |  39672.9    |      1 |
+| p4-hqq2   | ppl_cached | wikitext103 |     32768 | hf        | bf16           | int2_hqq   | 188154      |      1 |
+| p6-main   | ppl_cached | wikitext103 |     16384 | hf        | bf16           | hybrid_pk  |   3613.9    |      1 |
+| p6-main   | ppl_cached | wikitext103 |     32768 | hf        | bf16           | hybrid_pk  |   8218.26   |      1 |
+| p6-theta3 | ppl_cached | wikitext103 |     16384 | hf        | bf16           | hybrid_pk  |   3485.33   |      1 |
+| p6-theta3 | ppl_cached | wikitext103 |     32768 | hf        | bf16           | hybrid_pk  |   6465.6    |      1 |
+| p6-norot  | ppl_cached | wikitext103 |     16384 | hf        | bf16           | hybrid_pk  |   3138.16   |      1 |
+| p6-norot  | ppl_cached | wikitext103 |     32768 | hf        | bf16           | hybrid_pk  |   2679.74   |      1 |
+| p6-skip01 | ppl_cached | wikitext103 |     16384 | hf        | bf16           | hybrid_pk  |      5.9968 |      1 |
+| p6-skip01 | ppl_cached | wikitext103 |     32768 | hf        | bf16           | hybrid_pk  |      8.7105 |      1 |
 
 ## T4 LongBench(subset × config)
 
