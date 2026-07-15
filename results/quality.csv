@@ -516,3 +516,99 @@ p6-skip01,6,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah
 p6-skip01,6,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_en,32768,depth=0.9,acc,1.0,3,results/raw/niah_p6-skip01_niah_en.jsonl,cfg=skip01
 p6-skip01,6,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,ppl_cached,wikitext103,16384,,ppl,5.9968,1,,cfg=skip01
 p6-skip01,6,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,ppl_cached,wikitext103,32768,,ppl,8.7105,1,,cfg=skip01
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,4096,depth=0.1,acc,0.3333,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,4096,depth=0.3,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,4096,depth=0.5,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,4096,depth=0.7,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,4096,depth=0.9,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,16384,depth=0.1,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,16384,depth=0.3,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,16384,depth=0.5,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,16384,depth=0.7,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,16384,depth=0.9,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,32768,depth=0.1,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,32768,depth=0.3,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,32768,depth=0.5,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,32768,depth=0.7,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,32768,depth=0.9,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,63488,depth=0.1,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,63488,depth=0.3,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,63488,depth=0.5,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,63488,depth=0.7,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p3-awq-fp8,7,4090,vllm,p3-awq-fp8,awq_w4,fp8_e4m3,yarn4,niah,niah_code,63488,depth=0.9,acc,0.0,3,results/raw/niah_p3-awq-fp8_niah_code.jsonl,vllm_v0_xformers calculate_kv_scales
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,4096,depth=0.1,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,4096,depth=0.3,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,4096,depth=0.5,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,4096,depth=0.7,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,4096,depth=0.9,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,16384,depth=0.1,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,16384,depth=0.3,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,16384,depth=0.5,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,16384,depth=0.7,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,16384,depth=0.9,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,32768,depth=0.1,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,32768,depth=0.3,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,32768,depth=0.5,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,32768,depth=0.7,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_zh,32768,depth=0.9,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,4096,depth=0.1,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,4096,depth=0.3,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,4096,depth=0.5,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,4096,depth=0.7,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,4096,depth=0.9,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,16384,depth=0.1,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,16384,depth=0.3,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,16384,depth=0.5,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,16384,depth=0.7,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,16384,depth=0.9,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,32768,depth=0.1,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,32768,depth=0.3,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,32768,depth=0.5,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,32768,depth=0.7,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,niah,niah_code,32768,depth=0.9,acc,0.0,3,results/raw/niah_p7-int2-quanto_niah_code.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,longbench,multifieldqa_zh,31500,,qa_f1_zh_score,0.026,50,results/raw/longbench_p7-int2-quanto_multifieldqa_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,longbench,dureader,31500,,rouge_zh_score,0.0855,50,results/raw/longbench_p7-int2-quanto_dureader.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,longbench,passage_retrieval_zh,31500,,retrieval_zh_score,0.0133,50,results/raw/longbench_p7-int2-quanto_passage_retrieval_zh.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,longbench,hotpotqa,31500,,qa_f1_score,0.0066,50,results/raw/longbench_p7-int2-quanto_hotpotqa.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,longbench,2wikimqa,31500,,qa_f1_score,0.011,50,results/raw/longbench_p7-int2-quanto_2wikimqa.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,longbench,passage_retrieval_en,31500,,retrieval_score,0.0233,50,results/raw/longbench_p7-int2-quanto_passage_retrieval_en.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,longbench,lcc,31500,,code_sim_score,0.1974,50,results/raw/longbench_p7-int2-quanto_lcc.jsonl,kv=quanto2
+p7-int2-quanto,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,int2_quanto,yarn4,longbench,repobench-p,31500,,code_sim_score,0.1688,50,results/raw/longbench_p7-int2-quanto_repobench-p.jsonl,kv=quanto2
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,4096,depth=0.1,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,4096,depth=0.3,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,4096,depth=0.5,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,4096,depth=0.7,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,4096,depth=0.9,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,16384,depth=0.1,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,16384,depth=0.3,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,16384,depth=0.5,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,16384,depth=0.7,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,16384,depth=0.9,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,32768,depth=0.1,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,32768,depth=0.3,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,32768,depth=0.5,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,32768,depth=0.7,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_zh,32768,depth=0.9,acc,0.0,3,results/raw/niah_p7-main_niah_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,4096,depth=0.1,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,4096,depth=0.3,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,4096,depth=0.5,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,4096,depth=0.7,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,4096,depth=0.9,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,16384,depth=0.1,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,16384,depth=0.3,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,16384,depth=0.5,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,16384,depth=0.7,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,16384,depth=0.9,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,32768,depth=0.1,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,32768,depth=0.3,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,32768,depth=0.5,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,32768,depth=0.7,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,niah,niah_code,32768,depth=0.9,acc,0.0,3,results/raw/niah_p7-main_niah_code.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,longbench,multifieldqa_zh,31500,,qa_f1_zh_score,0.0368,50,results/raw/longbench_p7-main_multifieldqa_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,longbench,dureader,31500,,rouge_zh_score,0.039,50,results/raw/longbench_p7-main_dureader.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,longbench,passage_retrieval_zh,31500,,retrieval_zh_score,0.0334,50,results/raw/longbench_p7-main_passage_retrieval_zh.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,longbench,hotpotqa,31500,,qa_f1_score,0.0,50,results/raw/longbench_p7-main_hotpotqa.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,longbench,2wikimqa,31500,,qa_f1_score,0.0021,50,results/raw/longbench_p7-main_2wikimqa.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,longbench,passage_retrieval_en,31500,,retrieval_score,0.0182,50,results/raw/longbench_p7-main_passage_retrieval_en.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,longbench,lcc,31500,,code_sim_score,0.1258,50,results/raw/longbench_p7-main_lcc.jsonl,cfg=main
+p7-main,7,4090,hf,models/Qwen2.5-7B-Instruct-yarn64k,bf16,hybrid_pk,yarn4,longbench,repobench-p,31500,,code_sim_score,0.1204,50,results/raw/longbench_p7-main_repobench-p.jsonl,cfg=main

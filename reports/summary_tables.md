@@ -36,35 +36,40 @@
 
 ## T2 NIAH 準確率(config × ctx,depth 取平均)
 
-|                                                                     |   4096 |   16384 |   32768 |   63488 |
-|:--------------------------------------------------------------------|-------:|--------:|--------:|--------:|
-| ('p1-bf16', 'vllm', 'bf16', 'fp16', 'yarn4', 'niah_code')           |  1     |   1     |   1     |       1 |
-| ('p1-bf16', 'vllm', 'bf16', 'fp16', 'yarn4', 'niah_en')             |  1     |   1     |   1     |       1 |
-| ('p1-bf16', 'vllm', 'bf16', 'fp16', 'yarn4', 'niah_zh')             |  1     |   1     |   1     |       1 |
-| ('p1-bf16-norope', 'vllm', 'bf16', 'fp16', 'none', 'niah_zh')       |  1     |   1     |   0     |     nan |
-| ('p2-awq', 'vllm', 'awq_w4', 'fp16', 'yarn4', 'niah_en')            |  1     |   1     |   1     |       1 |
-| ('p2-awq', 'vllm', 'awq_w4', 'fp16', 'yarn4', 'niah_zh')            |  1     |   1     |   1     |       1 |
-| ('p2-gptq', 'vllm', 'gptq_w4', 'fp16', 'yarn4', 'niah_en')          |  1     |   1     |   1     |       1 |
-| ('p2-gptq', 'vllm', 'gptq_w4', 'fp16', 'yarn4', 'niah_zh')          |  1     |   1     |   1     |       1 |
-| ('p3-awq-fp8', 'vllm', 'awq_w4', 'fp8_e4m3', 'yarn4', 'niah_zh')    |  0.6   |   0     |   0     |       0 |
-| ('p3-bf16-fp8', 'vllm', 'bf16', 'fp8_e4m3', 'yarn4', 'niah_zh')     |  0     |   0.133 |   0     |       0 |
-| ('p4-fp16', 'hf', 'bf16', 'fp16', 'yarn4', 'niah_en')               |  1     |   1     |   1     |     nan |
-| ('p4-fp16', 'hf', 'bf16', 'fp16', 'yarn4', 'niah_zh')               |  1     |   1     |   1     |     nan |
-| ('p4-hqq2', 'hf', 'bf16', 'int2_hqq', 'yarn4', 'niah_en')           |  0     |   0     |   0     |     nan |
-| ('p4-hqq2', 'hf', 'bf16', 'int2_hqq', 'yarn4', 'niah_zh')           |  0     |   0     |   0     |     nan |
-| ('p4-hqq4', 'hf', 'bf16', 'int4_hqq', 'yarn4', 'niah_en')           |  0     |   0     |   0     |     nan |
-| ('p4-hqq4', 'hf', 'bf16', 'int4_hqq', 'yarn4', 'niah_zh')           |  0     |   0     |   0     |     nan |
-| ('p4-quanto4', 'hf', 'bf16', 'int4_quanto', 'yarn4', 'niah_zh')     |  0     |   0     |   0     |     nan |
-| ('p5-lmd-int4', 'lmdeploy', 'bf16', 'int4_lmd', 'yarn4', 'niah_zh') |  0     |   0     |   0     |       0 |
-| ('p5-lmd-int8', 'lmdeploy', 'bf16', 'int8_lmd', 'yarn4', 'niah_zh') |  0.467 |   0.067 |   0.067 |       0 |
-| ('p6-main', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')          |  0     |   0     |   0     |     nan |
-| ('p6-main', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')          |  0     |   0     |   0     |     nan |
-| ('p6-norot', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')         |  0     |   0     |   0     |     nan |
-| ('p6-norot', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')         |  0     |   0     |   0     |     nan |
-| ('p6-skip01', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')        |  1     |   0.933 |   1     |     nan |
-| ('p6-skip01', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')        |  1     |   1     |   1     |     nan |
-| ('p6-theta3', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')        |  0     |   0     |   0     |     nan |
-| ('p6-theta3', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')        |  0     |   0     |   0     |     nan |
+|                                                                       |   4096 |   16384 |   32768 |   63488 |
+|:----------------------------------------------------------------------|-------:|--------:|--------:|--------:|
+| ('p1-bf16', 'vllm', 'bf16', 'fp16', 'yarn4', 'niah_code')             |  1     |   1     |   1     |       1 |
+| ('p1-bf16', 'vllm', 'bf16', 'fp16', 'yarn4', 'niah_en')               |  1     |   1     |   1     |       1 |
+| ('p1-bf16', 'vllm', 'bf16', 'fp16', 'yarn4', 'niah_zh')               |  1     |   1     |   1     |       1 |
+| ('p1-bf16-norope', 'vllm', 'bf16', 'fp16', 'none', 'niah_zh')         |  1     |   1     |   0     |     nan |
+| ('p2-awq', 'vllm', 'awq_w4', 'fp16', 'yarn4', 'niah_en')              |  1     |   1     |   1     |       1 |
+| ('p2-awq', 'vllm', 'awq_w4', 'fp16', 'yarn4', 'niah_zh')              |  1     |   1     |   1     |       1 |
+| ('p2-gptq', 'vllm', 'gptq_w4', 'fp16', 'yarn4', 'niah_en')            |  1     |   1     |   1     |       1 |
+| ('p2-gptq', 'vllm', 'gptq_w4', 'fp16', 'yarn4', 'niah_zh')            |  1     |   1     |   1     |       1 |
+| ('p3-awq-fp8', 'vllm', 'awq_w4', 'fp8_e4m3', 'yarn4', 'niah_code')    |  0.067 |   0     |   0     |       0 |
+| ('p3-awq-fp8', 'vllm', 'awq_w4', 'fp8_e4m3', 'yarn4', 'niah_zh')      |  0.6   |   0     |   0     |       0 |
+| ('p3-bf16-fp8', 'vllm', 'bf16', 'fp8_e4m3', 'yarn4', 'niah_zh')       |  0     |   0.133 |   0     |       0 |
+| ('p4-fp16', 'hf', 'bf16', 'fp16', 'yarn4', 'niah_en')                 |  1     |   1     |   1     |     nan |
+| ('p4-fp16', 'hf', 'bf16', 'fp16', 'yarn4', 'niah_zh')                 |  1     |   1     |   1     |     nan |
+| ('p4-hqq2', 'hf', 'bf16', 'int2_hqq', 'yarn4', 'niah_en')             |  0     |   0     |   0     |     nan |
+| ('p4-hqq2', 'hf', 'bf16', 'int2_hqq', 'yarn4', 'niah_zh')             |  0     |   0     |   0     |     nan |
+| ('p4-hqq4', 'hf', 'bf16', 'int4_hqq', 'yarn4', 'niah_en')             |  0     |   0     |   0     |     nan |
+| ('p4-hqq4', 'hf', 'bf16', 'int4_hqq', 'yarn4', 'niah_zh')             |  0     |   0     |   0     |     nan |
+| ('p4-quanto4', 'hf', 'bf16', 'int4_quanto', 'yarn4', 'niah_zh')       |  0     |   0     |   0     |     nan |
+| ('p5-lmd-int4', 'lmdeploy', 'bf16', 'int4_lmd', 'yarn4', 'niah_zh')   |  0     |   0     |   0     |       0 |
+| ('p5-lmd-int8', 'lmdeploy', 'bf16', 'int8_lmd', 'yarn4', 'niah_zh')   |  0.467 |   0.067 |   0.067 |       0 |
+| ('p6-main', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')            |  0     |   0     |   0     |     nan |
+| ('p6-main', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')            |  0     |   0     |   0     |     nan |
+| ('p6-norot', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')           |  0     |   0     |   0     |     nan |
+| ('p6-norot', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')           |  0     |   0     |   0     |     nan |
+| ('p6-skip01', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')          |  1     |   0.933 |   1     |     nan |
+| ('p6-skip01', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')          |  1     |   1     |   1     |     nan |
+| ('p6-theta3', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_en')          |  0     |   0     |   0     |     nan |
+| ('p6-theta3', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')          |  0     |   0     |   0     |     nan |
+| ('p7-int2-quanto', 'hf', 'bf16', 'int2_quanto', 'yarn4', 'niah_code') |  0     |   0     |   0     |     nan |
+| ('p7-int2-quanto', 'hf', 'bf16', 'int2_quanto', 'yarn4', 'niah_zh')   |  0     |   0     |   0     |     nan |
+| ('p7-main', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_code')          |  0     |   0     |   0     |     nan |
+| ('p7-main', 'hf', 'bf16', 'hybrid_pk', 'yarn4', 'niah_zh')            |  0     |   0     |   0     |     nan |
 
 ## T3 PPL
 
@@ -90,13 +95,13 @@
 
 ## T4 LongBench(subset × config)
 
-| subset               |   ('vllm', 'awq_w4', 'fp16') |   ('vllm', 'awq_w4', 'fp8_e4m3') |   ('vllm', 'bf16', 'fp16') |   ('vllm', 'bf16', 'fp8_e4m3') |   ('vllm', 'gptq_w4', 'fp16') |
-|:---------------------|-----------------------------:|---------------------------------:|---------------------------:|-------------------------------:|------------------------------:|
-| 2wikimqa             |                        0.428 |                            0.087 |                      0.486 |                          0.157 |                         0.512 |
-| dureader             |                        0.275 |                            0.128 |                      0.273 |                          0.141 |                         0.26  |
-| hotpotqa             |                        0.521 |                            0.078 |                      0.552 |                          0.15  |                         0.524 |
-| lcc                  |                        0.123 |                            0.142 |                      0.093 |                          0.183 |                         0.075 |
-| multifieldqa_zh      |                        0.655 |                            0.355 |                      0.629 |                          0.371 |                         0.632 |
-| passage_retrieval_en |                        0.96  |                            0.034 |                      1     |                          0.138 |                         1     |
-| passage_retrieval_zh |                        0.82  |                            0.193 |                      0.86  |                          0.24  |                         0.8   |
-| repobench-p          |                        0.049 |                            0.153 |                      0.053 |                          0.189 |                         0.043 |
+| subset               |   ('hf', 'bf16', 'hybrid_pk') |   ('hf', 'bf16', 'int2_quanto') |   ('vllm', 'awq_w4', 'fp16') |   ('vllm', 'awq_w4', 'fp8_e4m3') |   ('vllm', 'bf16', 'fp16') |   ('vllm', 'bf16', 'fp8_e4m3') |   ('vllm', 'gptq_w4', 'fp16') |
+|:---------------------|------------------------------:|--------------------------------:|-----------------------------:|---------------------------------:|---------------------------:|-------------------------------:|------------------------------:|
+| 2wikimqa             |                         0.002 |                           0.011 |                        0.428 |                            0.087 |                      0.486 |                          0.157 |                         0.512 |
+| dureader             |                         0.039 |                           0.086 |                        0.275 |                            0.128 |                      0.273 |                          0.141 |                         0.26  |
+| hotpotqa             |                         0     |                           0.007 |                        0.521 |                            0.078 |                      0.552 |                          0.15  |                         0.524 |
+| lcc                  |                         0.126 |                           0.197 |                        0.123 |                            0.142 |                      0.093 |                          0.183 |                         0.075 |
+| multifieldqa_zh      |                         0.037 |                           0.026 |                        0.655 |                            0.355 |                      0.629 |                          0.371 |                         0.632 |
+| passage_retrieval_en |                         0.018 |                           0.023 |                        0.96  |                            0.034 |                      1     |                          0.138 |                         1     |
+| passage_retrieval_zh |                         0.033 |                           0.013 |                        0.82  |                            0.193 |                      0.86  |                          0.24  |                         0.8   |
+| repobench-p          |                         0.12  |                           0.169 |                        0.049 |                            0.153 |                      0.053 |                          0.189 |                         0.043 |
