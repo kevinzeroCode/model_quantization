@@ -1,0 +1,13 @@
+{
+  "cuda_allocation_ok": false,
+  "cuda_error": "The NVIDIA driver on your system is too old (found version 12080). Please update your GPU driver by downloading and installing a new version from the URL: http://www.nvidia.com/Download/index.aspx Alternatively, go to: https://pytorch.org to install a PyTorch version that has been compiled with your version of the CUDA driver.",
+  "help_has_int4_int8_kv": true,
+  "help_has_turboquant_kv": true,
+  "kv_cache_dtype_help_excerpt": "int4_per_token_head,int8_per_token_head,nvfp4,turboquant_3bit_nc,turboquant_4bit_nc,turboquant_k3v4_nc,turboquant_k8v4",
+  "python": "3.12.3",
+  "torch_cuda_available": false,
+  "torch_cuda_version": "13.0",
+  "torch_version": "2.11.0+cu130",
+  "turboquant_module": true,
+  "vllm_version": "0.25.0"
+}

@@ -83,3 +83,27 @@
 - 診斷:[已驗證] Phase 4 需要的是同一 runtime 內部的 KV cache 品質對照，不依賴 PG-19；Phase 1 已有相同資料集下載時間問題。
 - 處置:[已驗證] `ppl_eval.py` 改成預設使用 `wikitext-103`，只有設定 `USE_PG19=1` 時才嘗試 PG-19。
 - 影響:Phase 4 cached-PPL subset 記為 `wikitext103`，不可和未來 PG-19 PPL 直接混表比較。
+
+## [2026-07-14] phase5-vllm025-turboquant-cuda13-driver-block
+- 現象:[已驗證] isolated `venv-vllm-p5` 的 vLLM 0.25.0  exposes `turboquant_3bit_nc` / `turboquant_4bit_nc` / `turboquant_k3v4_nc` / `turboquant_k8v4` KV dtypes, but torch 2.11.0+cu130 cannot allocate CUDA on driver 570.211.01.
+- 診斷:[已驗證] `env/probe_vllm_p5.json` records `cuda_allocation_ok=false` and the driver-too-old error. The stable vLLM 0.10.2 environment does not expose TurboQuant KV dtypes.
+- 處置:[已驗證] Phase 5 used the runbook route B fallback with LMDeploy int8/int4 KV instead of running vLLM TurboQuant.
+- 影響:TurboQuant remains an environment-blocked future route; it requires a CUDA 13 compatible driver or a vLLM build pinned to a CUDA runtime compatible with this host.
+
+## [2026-07-14] phase5-lmdeploy-int8-default-warmup-oom
+- 現象:[已驗證] LMDeploy int8 KV with the initial aggressive cache/batch setting OOMed during warm-up.
+- 診斷:[已驗證] The failure happened before benchmark traffic; reducing to `cache_max_entry_count=0.7`, `max_batch_size=4`, and `max_prefill_token_num=4096` started cleanly.
+- 處置:[已驗證] Phase 5 int8/int4 results use the conservative launch configuration and record KV pool tokens from the server log.
+- 影響:The reported LMDeploy capacity is a stable operational capacity for this 24GB host, not the theoretical maximum with more aggressive cache settings.
+
+## [2026-07-14] phase5-lmdeploy-lowbit-kv-quality-collapse
+- 現象:[已驗證] LMDeploy int8 KV scored 9/60 on frozen `niah_zh`, and int4 KV scored 0/60, even though both served 32K/63K requests successfully.
+- 診斷:[已驗證] The failure is a quality collapse, not a serving crash: int4 raw NIAH has 60/60 HTTP OK responses, while int8 has 59/60 OK responses and only one request-level FAIL.
+- 處置:[已驗證] Phase 5 report treats LMDeploy low-bit KV as a negative deployment result and keeps speed/capacity rows separate from quality acceptance.
+- 影響:For Phase 6, any hybrid low-bit KV proposal must first beat this 4K retrieval collapse before capacity gains are meaningful.
+
+## [2026-07-14] phase5-vllm-bench-lmdeploy-chat-schema-422
+- 現象:[已驗證] `vllm bench serve --backend openai-chat` against LMDeploy returned repeated HTTP 422 responses during the ready check.
+- 診斷:[已驗證] LMDeploy itself remained healthy via direct `/v1/chat/completions`; the incompatibility was in the benchmark client's request schema for this server.
+- 處置:[已驗證] Added `scripts/bench_openai_serve.py`, a small OpenAI-compatible streaming client that writes the existing `results/perf.csv` schema.
+- 影響:LMDeploy serving rows are collected with the local helper and should only be compared with LMDeploy rows.

@@ -18,6 +18,11 @@ if os.path.exists("results/perf.csv"):
     hf = p[p.runtime == "hf"][["run_id", "kv_quant", "ctx_len", "ttft_ms_mean",
                                "tpot_ms_mean", "vram_peak_gb", "eff_kv_bits", "status"]]
     out.append(hf.to_markdown(index=False) + "\n")
+    out.append("## T1c LMDeploy runtime 參考(不得與 T1/HF 互比)\n")
+    lmd = p[p.runtime == "lmdeploy"][["run_id", "kv_quant", "ctx_len", "batch",
+                                      "ttft_ms_mean", "tpot_ms_mean", "gen_tps",
+                                      "kv_pool_tokens", "eff_kv_bits", "status"]]
+    out.append(lmd.to_markdown(index=False) + "\n")
 
 if os.path.exists("results/quality.csv"):
     q = pd.read_csv("results/quality.csv")
